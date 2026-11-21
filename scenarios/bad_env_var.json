@@ -1,0 +1,84 @@
+{
+  "id": "bad_env_var",
+  "title": "notification-svc crash loop after a bad SMTP_PORT value",
+  "description": "Revision 12 moved SMTP settings into environment variables and set SMTP_PORT to 'smtp.acme.local:587' (host and port pasted together). The service validates config at startup, exits with code 1, and loops in CrashLoopBackOff. Revision 11 was healthy.",
+  "alert": {
+    "name": "KubePodCrashLooping",
+    "severity": "warning",
+    "namespace": "acme-prod",
+    "service": "notification-svc",
+    "summary": "Pods of acme-prod/notification-svc are restarting frequently (9 restarts in 20 minutes).",
+    "started_at": "2026-11-21T12:05:00Z",
+    "labels": {"team": "messaging", "tenant": "acme"}
+  },
+  "expected": {
+    "root_cause_category": "bad_config",
+    "root_cause_keywords": ["SMTP_PORT", "smtp.acme.local:587", "revision 12"],
+    "acceptable_actions": ["set_env", "rollback_deployment"],
+    "action_target": "notification-svc",
+    "required_tools": ["get_pod_logs"],
+    "max_tool_calls": 60
+  },
+  "remediation": {
+    "fixes": [
+      {"tool": "set_env", "args": {"deployment": "notification-svc", "name": "SMTP_PORT", "value": "587"}},
+      {"tool": "rollback_deployment", "args": {"deployment": "notification-svc", "to_revision": 11}}
+    ],
+    "heals": ["notification-svc"]
+  },
+  "namespaces": {
+    "acme-prod": {
+      "deployments": {
+        "notification-svc": {
+          "name": "notification-svc",
+          "replicas": 2,
+          "ready_replicas": 0,
+          "containers": [
+            {
+              "name": "app",
+              "image": "registry.acme.local/notification-svc:1.9.0",
+              "resources": {"requests": {"cpu": "100m", "memory": "128Mi"}, "limits": {"cpu": "300m", "memory": "256Mi"}},
+              "env": {"SMTP_HOST": "smtp.acme.local", "SMTP_PORT": "smtp.acme.local:587", "SMTP_TLS": "true", "QUEUE_URL": "amqp://rabbitmq.acme-prod.svc:5672"}
+            }
+          ],
+          "revisions": [
+            {"revision": 11, "image": "registry.acme.local/notification-svc:1.9.0", "change_cause": "retry backoff for webhooks", "created_at": "2026-11-14T10:00:00Z"},
+            {"revision": 12, "image": "registry.acme.local/notification-svc:1.9.0", "change_cause": "move SMTP settings from configmap to env vars", "created_at": "2026-11-21T11:58:00Z"}
+          ]
+        }
+      },
+      "pods": [
+        {"name": "notification-svc-58c7d9b6f-k1m2n", "deployment": "notification-svc", "phase": "Running", "status": "CrashLoopBackOff", "restarts": 9, "node": "worker-2", "age": "21m",
+         "containers": [{"name": "app", "state": "Waiting (CrashLoopBackOff)", "ready": false, "last_state": {"state": "Terminated", "reason": "Error", "exit_code": 1, "finished_at": "2026-11-21T12:18:40Z"}}],
+         "logs": {"app": {
+           "current": [],
+           "previous": [
+             "2026-11-21T12:18:39Z INFO  notification-svc 1.9.0 starting",
+             "2026-11-21T12:18:39Z INFO  loading configuration from environment",
+             "2026-11-21T12:18:39Z ERROR config validation failed: SMTP_PORT: value 'smtp.acme.local:587' is not a valid integer",
+             "2026-11-21T12:18:39Z FATAL refusing to start with invalid configuration (1 error)"
+           ]
+         }}},
+        {"name": "notification-svc-58c7d9b6f-p3q4r", "deployment": "notification-svc", "phase": "Running", "status": "CrashLoopBackOff", "restarts": 9, "node": "worker-3", "age": "21m",
+         "containers": [{"name": "app", "state": "Waiting (CrashLoopBackOff)", "ready": false, "last_state": {"state": "Terminated", "reason": "Error", "exit_code": 1, "finished_at": "2026-11-21T12:18:52Z"}}],
+         "logs": {"app": {"current": [], "previous": [
+           "2026-11-21T12:18:51Z ERROR config validation failed: SMTP_PORT: value 'smtp.acme.local:587' is not a valid integer",
+           "2026-11-21T12:18:51Z FATAL refusing to start with invalid configuration (1 error)"
+         ]}}}
+      ],
+      "events": [
+        {"type": "Normal", "reason": "ScalingReplicaSet", "object": "deployment/notification-svc", "message": "Scaled up replica set notification-svc-58c7d9b6f to 2", "count": 1, "last_seen": "2026-11-21T11:58:05Z"},
+        {"type": "Warning", "reason": "BackOff", "object": "pod/notification-svc-58c7d9b6f-k1m2n", "message": "Back-off restarting failed container app in pod notification-svc-58c7d9b6f-k1m2n", "count": 52, "last_seen": "2026-11-21T12:19:01Z"},
+        {"type": "Warning", "reason": "BackOff", "object": "pod/notification-svc-58c7d9b6f-p3q4r", "message": "Back-off restarting failed container app in pod notification-svc-58c7d9b6f-p3q4r", "count": 50, "last_seen": "2026-11-21T12:19:03Z"}
+      ]
+    }
+  },
+  "metrics": {
+    "notification-svc": {
+      "restart_count": {"unit": "restarts", "description": "Container restarts across pods since the latest rollout", "points": [[-60, 0], [-30, 0], [-20, 4], [-10, 11], [0, 18]]},
+      "memory_usage": {"unit": "MiB", "description": "Max container working-set memory across pods", "points": [[-60, 96], [-30, 98], [-20, 31], [-10, 29], [0, 30]]},
+      "cpu_usage": {"unit": "cores", "description": "Total CPU usage across pods", "points": [[-60, 0.04], [-30, 0.05], [-20, 0.01], [0, 0.01]]},
+      "http_5xx_rate": {"unit": "percent", "description": "Share of webhook requests returning 5xx", "points": [[-60, 0.0], [-30, 0.0], [-20, 100.0], [0, 100.0]]}
+    }
+  }
+}

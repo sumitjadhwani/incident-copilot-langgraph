@@ -1,0 +1,1208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Incident Copilot Architecture</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Architects+Daughter&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Layout: one reading column (~70ch) with wide figures that break out to the full container; whiteboard-style diagrams on a quiet slate page. */
+:root {
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --fg: #19202a;
+  --muted: #5a6575;
+  --line: #d6dce4;
+  --edge: #4b5563;
+  --accent: #0f766e;
+  --llm: #6d3fd6;
+  --llm-bg: rgba(109, 63, 214, 0.09);
+  --code: #0f766e;
+  --code-bg: rgba(15, 118, 110, 0.09);
+  --human: #b45309;
+  --human-bg: rgba(180, 83, 9, 0.11);
+  --store: #52606f;
+  --store-bg: rgba(82, 96, 111, 0.09);
+  --code-inline: #eef1f5;
+  --f-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --f-sketch: "Architects Daughter", "Segoe Print", "Comic Sans MS", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11161d; --panel: #171e27; --fg: #e5e9ef; --muted: #9aa5b4; --line: #2a3340; --edge: #a3adbb;
+    --accent: #2dd4bf; --llm: #a78bfa; --llm-bg: rgba(167, 139, 250, 0.14); --code: #2dd4bf;
+    --code-bg: rgba(45, 212, 191, 0.12); --human: #f2a541; --human-bg: rgba(242, 165, 65, 0.14);
+    --store: #9fb0c3; --store-bg: rgba(159, 176, 195, 0.12); --code-inline: #222b36; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11161d; --panel: #171e27; --fg: #e5e9ef; --muted: #9aa5b4; --line: #2a3340; --edge: #a3adbb;
+  --accent: #2dd4bf; --llm: #a78bfa; --llm-bg: rgba(167, 139, 250, 0.14); --code: #2dd4bf;
+  --code-bg: rgba(45, 212, 191, 0.12); --human: #f2a541; --human-bg: rgba(242, 165, 65, 0.14);
+  --store: #9fb0c3; --store-bg: rgba(159, 176, 195, 0.12); --code-inline: #222b36; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 16px; line-height: 1.6; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 40px 80px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; line-height: 1.2; margin: 0; }
+h1 { font-size: clamp(2rem, 4.5vw, 3rem); font-weight: 700; letter-spacing: -0.02em; }
+h2 { font-size: 1.6rem; font-weight: 600; letter-spacing: -0.01em; }
+h3 { font-size: 1.1rem; font-weight: 600; }
+p { margin: 0; }
+a { color: var(--accent); }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+code { font-family: var(--f-mono); font-size: 0.88em; background: var(--code-inline); padding: 0.08em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
+.eyebrow { font-family: var(--f-mono); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+header.hero { display: grid; gap: 18px; padding-bottom: 28px; border-bottom: 1px solid var(--line); }
+.thesis { font-size: 1.2rem; max-width: 60ch; }
+.thesis em { font-style: normal; font-weight: 600; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 8px; }
+.fact { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 2px; }
+.fact b { font-family: var(--f-display); font-size: 1.7rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.fact span { font-size: 0.88rem; color: var(--muted); line-height: 1.35; }
+
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px; padding-block: 20px; }
+nav.toc a { font-family: var(--f-mono); font-size: 0.8rem; text-decoration: none; color: var(--fg); border: 1px solid var(--line); background: var(--panel); padding: 4px 10px; border-radius: 999px; }
+nav.toc a:hover { border-color: var(--accent); color: var(--accent); }
+
+section { display: grid; gap: 16px; padding-top: 44px; scroll-margin-top: 16px; }
+section > p, section > ul, section > ol { max-width: 72ch; }
+ul, ol { margin: 0; padding-left: 1.3em; display: grid; gap: 6px; }
+
+.plain { border-left: 3px solid var(--human); background: var(--human-bg); padding: 10px 14px; border-radius: 0 8px 8px 0; max-width: 72ch; font-size: 0.95rem; }
+.plain b { color: var(--human); font-family: var(--f-mono); font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; display: block; margin-bottom: 2px; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.85rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 14px; height: 14px; border-radius: 4px; border: 1.6px solid; display: inline-block; }
+.legend .l-llm { background: var(--llm-bg); border-color: var(--llm); }
+.legend .l-code { background: var(--code-bg); border-color: var(--code); }
+.legend .l-human { background: var(--human-bg); border-color: var(--human); }
+.legend .l-store { background: var(--store-bg); border-color: var(--store); }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+figure .scroll { overflow-x: auto; padding: 14px; }
+figure svg { display: block; width: 100%; height: auto; min-width: 880px; }
+figcaption { border-top: 1px solid var(--line); padding: 12px 16px; font-size: 0.9rem; color: var(--muted); }
+
+/* diagram vocabulary */
+.dg { color: var(--edge); }
+.dg .s-llm { fill: var(--llm-bg); stroke: var(--llm); stroke-width: 1.6; }
+.dg .s-code { fill: var(--code-bg); stroke: var(--code); stroke-width: 1.6; }
+.dg .s-human { fill: var(--human-bg); stroke: var(--human); stroke-width: 1.6; }
+.dg .s-store { fill: var(--store-bg); stroke: var(--store); stroke-width: 1.6; }
+.dg .s-outer { fill: var(--panel); stroke: var(--fg); stroke-width: 1.6; }
+.dg .s-pill { fill: var(--panel); stroke: var(--fg); stroke-width: 1.4; }
+.dg .s-opt { stroke-dasharray: 6 4; }
+.dg .zone { fill: none; stroke: var(--muted); stroke-width: 1.3; stroke-dasharray: 7 5; }
+.dg .edge { fill: none; stroke: var(--edge); stroke-width: 1.5; }
+.dg .edge.d { stroke-dasharray: 5 4; }
+.dg .life { stroke: var(--line); stroke-width: 1.4; stroke-dasharray: 3 4; fill: none; }
+.dg .sep { stroke: var(--line); stroke-width: 1.4; stroke-dasharray: 4 5; }
+.dg text { font-family: var(--f-mono); }
+.dg .bn { font-family: var(--f-sketch); font-size: 15px; fill: var(--fg); text-anchor: middle; }
+.dg .bn.l { text-anchor: start; }
+.dg .bs { font-size: 11px; fill: var(--muted); text-anchor: middle; }
+.dg .bs.l { text-anchor: start; }
+.dg .el { font-size: 11px; fill: var(--muted); text-anchor: middle; paint-order: stroke; stroke: var(--panel); stroke-width: 5px; stroke-linejoin: round; }
+.dg .el.l { text-anchor: start; }
+.dg .el.r { text-anchor: end; }
+.dg .el.hu { fill: var(--human); }
+.dg .zl { font-size: 11px; fill: var(--muted); letter-spacing: 0.08em; }
+.dg .pt { font-family: var(--f-display); font-size: 14px; font-weight: 600; fill: var(--fg); }
+
+.tbl { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; min-width: 720px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+th { font-family: var(--f-mono); font-size: 0.74rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+td:first-child { font-weight: 600; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.grp td { background: var(--bg); font-family: var(--f-mono); font-size: 0.74rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); padding-block: 7px; }
+td .ver { display: block; font-family: var(--f-mono); font-size: 0.75rem; font-weight: 400; color: var(--muted); }
+.flow { font-family: var(--f-mono); font-size: 0.85rem; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; overflow-x: auto; white-space: pre; margin: 0; }
+.tag { display: inline-block; font-family: var(--f-mono); font-size: 0.72rem; padding: 1px 7px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+.tag.llm { color: var(--llm); border-color: var(--llm); background: var(--llm-bg); }
+.tag.code { color: var(--code); border-color: var(--code); background: var(--code-bg); }
+
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.card p, .card li { font-size: 0.95rem; }
+
+dl.gloss { display: grid; grid-template-columns: minmax(130px, max-content) 1fr; gap: 0; margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+dl.gloss dt, dl.gloss dd { margin: 0; padding: 9px 14px; border-bottom: 1px solid var(--line); }
+dl.gloss dt { font-family: var(--f-mono); font-size: 0.85rem; font-weight: 500; color: var(--accent); background: var(--bg); }
+dl.gloss dd { font-size: 0.93rem; min-width: 0; }
+dl.gloss dt:last-of-type, dl.gloss dd:last-of-type { border-bottom: 0; }
+@media (max-width: 560px) { dl.gloss { grid-template-columns: 1fr; } dl.gloss dt { border-bottom: 0; padding-bottom: 2px; } }
+
+.qa { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; display: grid; gap: 12px; }
+.qa h3 { font-size: 1.15rem; }
+.qa p, .qa li { max-width: 72ch; }
+.qa pre { margin: 0; font-family: var(--f-mono); font-size: 0.82rem; line-height: 1.55; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto; }
+.qa pre .c, .card pre .c { color: var(--muted); }
+.card pre { margin: 0; font-family: var(--f-mono); font-size: 0.78rem; line-height: 1.55; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow-x: auto; }
+.card .here { font-size: 0.9rem; color: var(--muted); }
+.card .here b { color: var(--fg); }
+
+ol.ladder { list-style: none; padding: 0; counter-reset: step; gap: 0; max-width: 80ch; }
+ol.ladder li { counter-increment: step; display: grid; grid-template-columns: 42px 1fr; gap: 12px; padding: 12px 0; border-bottom: 1px dashed var(--line); }
+ol.ladder li:last-child { border-bottom: 0; }
+ol.ladder li::before { content: counter(step); font-family: var(--f-display); font-weight: 700; font-size: 1.05rem; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; border: 1.6px solid var(--human); color: var(--human); background: var(--human-bg); }
+ol.ladder b { font-weight: 600; }
+ol.ladder .where { font-family: var(--f-mono); font-size: 0.78rem; color: var(--muted); }
+
+pre.tree { margin: 0; font-family: var(--f-mono); font-size: 0.82rem; line-height: 1.55; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; overflow-x: auto; color: var(--fg); }
+pre.tree .c { color: var(--muted); }
+pre.tree .k { color: var(--human); }
+pre.tree .n { color: var(--code); }
+pre.tree .m { color: var(--llm); }
+
+details { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 4px 16px; }
+details summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
+details[open] summary { border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+details pre { margin: 0 0 12px; font-family: var(--f-mono); font-size: 0.78rem; overflow-x: auto; color: var(--muted); }
+
+footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 0.85rem; color: var(--muted); }
+@media (max-width: 520px) { body { font-size: 15px; } .thesis { font-size: 1.05rem; } }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">How the system is built · plain-language edition · 2026-11-22</div>
+  <h1>Incident Copilot Architecture</h1>
+  <p class="thesis">An assistant for on-call engineers. When an alert fires on Kubernetes, it looks around, works out what broke, and suggests one fix. A human must approve a risky fix before anything changes. The rule behind the whole design: <em>the AI figures out what is wrong</em>, <em>ordinary code decides what happens next and who may approve</em>, and <em>Kubernetes decides what that person is allowed to change</em>.</p>
+  <div class="facts" aria-label="System at a glance">
+    <div class="fact"><b>9</b><span>steps in the main flow</span></div>
+    <div class="fact"><b>3</b><span>AI agents that use tools</span></div>
+    <div class="fact"><b>3</b><span>extra one-shot AI calls (no tools)</span></div>
+    <div class="fact"><b>6</b><span>look-only tools the AI may use</span></div>
+    <div class="fact"><b>5</b><span>change actions the AI can only suggest</span></div>
+    <div class="fact"><b>3</b><span>tool servers that act as the user</span></div>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Sections">
+  <a href="#analogy">The hospital picture</a>
+  <a href="#words">Words used</a>
+  <a href="#context">Big picture</a>
+  <a href="#stack">Tech stack</a>
+  <a href="#graph">The flow</a>
+  <a href="#subgraphs">Inside an agent</a>
+  <a href="#agents">Agents</a>
+  <a href="#tools">Tools</a>
+  <a href="#approval">Approval, step by step</a>
+  <a href="#security">Safety layers</a>
+  <a href="#questions">Your questions</a>
+  <a href="#features">LangGraph features</a>
+  <a href="#tracing">Tracing</a>
+  <a href="#masking">Masking</a>
+  <a href="#evals">Testing</a>
+  <a href="#decisions">Decisions</a>
+  <a href="#limits">Shortcuts</a>
+</nav>
+
+<!-- ============================================================ ANALOGY -->
+<section id="analogy">
+  <h2>The whole system as a hospital</h2>
+  <p>If you remember one picture, make it this one. An alert is a patient arriving at the emergency room.</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>In the hospital</th><th>In this system</th><th>Name in the code</th></tr></thead>
+      <tbody>
+        <tr><td>Triage nurse: "how serious is this, does it need a doctor?"</td><td>First agent looks at pods, events and metrics and decides if the alert is real</td><td><code>triage</code></td></tr>
+        <tr><td>Several doctors each test one theory at the same time</td><td>Up to 3 investigator agents, one per suspected cause, running in parallel</td><td><code>diagnosis</code> → <code>investigate</code> ×3</td></tr>
+        <tr><td>Lead doctor reads their results and names the illness</td><td>One AI call combines the verdicts into a diagnosis</td><td><code>diagnosis.conclude</code></td></tr>
+        <tr><td>Treatment plan, following the hospital's standard procedures</td><td>Remediation agent proposes one fix, guided by the team's runbook</td><td><code>remediation</code></td></tr>
+        <tr><td>The written protocol on the wall ("if the nurse says not urgent, send home")</td><td>A fixed set of rules in Python that picks the next step</td><td><code>supervisor</code></td></tr>
+        <tr><td>Risky treatment needs a senior doctor's signature, and not from the doctor who proposed it</td><td>Risky fixes pause until someone with the <code>sre-approver</code> role approves; you can't approve your own incident</td><td><code>approval_gate</code></td></tr>
+        <tr><td>The signature is on the exact prescription: drug, dose, patient</td><td>The approval is tied to a fingerprint (hash) of the exact action</td><td><code>action_hash</code></td></tr>
+        <tr><td>Pharmacist checks the signed prescription before giving the medicine, and never gives it twice</td><td>The executor checks the audit log for a matching approval, and skips if it already ran</td><td><code>execute_action</code></td></tr>
+        <tr><td>Staff open doors with their own badge, never a master key, so the door log shows who</td><td>Tool servers act on Kubernetes <em>as the human</em>, so Kubernetes checks and logs that person</td><td>impersonation</td></tr>
+        <tr><td>Watch the patient for a while before saying "recovered"</td><td>After the fix, wait until pods stay healthy for 45 seconds</td><td><code>verify</code></td></tr>
+        <tr><td>Medical record written in ink, pages numbered</td><td>Audit table that can only be added to, each row chained to the previous one</td><td><code>audit_log</code></td></tr>
+        <tr><td>Patient chart updated after every step, so the next shift can carry on</td><td>The graph's state saved to Postgres after every step, so a crashed run can continue</td><td>checkpointer</td></tr>
+        <tr><td>The patient's file from previous visits</td><td>Memory of past incidents and runbooks, per company</td><td><code>Store</code></td></tr>
+        <tr><td>Practice drills with actors playing patients</td><td>Evals: fake incidents with recorded tool answers, run several times</td><td><code>tests/evals</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============================================================ GLOSSARY -->
+<section id="words">
+  <h2>Words used on this page</h2>
+  <dl class="gloss">
+    <dt>graph</dt><dd>The flowchart of steps the system runs. LangGraph is the library that runs it.</dd>
+    <dt>node</dt><dd>One box in that flowchart, one step. It's an ordinary Python function.</dd>
+    <dt>state</dt><dd>The shared notebook every step reads from and writes to (the alert, triage result, diagnosis…).</dd>
+    <dt>subgraph</dt><dd>A small flowchart used as one box inside the big one. Each agent is one.</dd>
+    <dt>agent (ReAct)</dt><dd>An AI in a loop: think, call a tool, read the answer, think again, until it is done.</dd>
+    <dt>structured output</dt><dd>Making the AI fill in a fixed form (fields with set types) instead of writing free text, so code can read the answer reliably.</dd>
+    <dt>tool</dt><dd>A function the AI may ask to run, like "list the pods". The AI asks; our code runs it.</dd>
+    <dt>MCP server</dt><dd>A small web service that offers tools in a standard format (Model Context Protocol). Ours sit inside the cluster.</dd>
+    <dt>JWT / token</dt><dd>A signed digital ID card from Keycloak: who you are, your company (tenant), your roles.</dd>
+    <dt>tenant</dt><dd>A customer company. Here: <code>acme</code> and <code>globex</code>. They must never see each other's data.</dd>
+    <dt>RBAC</dt><dd>Role-based access control: what you may do depends on your role, for example <code>sre-approver</code>.</dd>
+    <dt>impersonation</dt><dd>A Kubernetes feature: a trusted service says "do this <em>as</em> user bob", and Kubernetes applies bob's permissions.</dd>
+    <dt>hash</dt><dd>A short fingerprint of some data. Change one character and the fingerprint changes completely.</dd>
+    <dt>idempotent</dt><dd>Safe to repeat: doing it twice has the same effect as doing it once.</dd>
+    <dt>checkpoint</dt><dd>A saved snapshot of the state after a step, like a save point in a video game.</dd>
+    <dt>interrupt</dt><dd>LangGraph's "pause here and wait for a person". The run sleeps until someone resumes it.</dd>
+    <dt>trace / span</dt><dd>A timeline of one request. Each span is one timed piece of work inside it (a step, an AI call, an HTTP call).</dd>
+  </dl>
+</section>
+
+<div class="legend" aria-label="Diagram colour key" style="padding-top:36px">
+  <span><i class="l-llm"></i>AI decides</span>
+  <span><i class="l-code"></i>fixed code decides</span>
+  <span><i class="l-human"></i>people and the approval pause</span>
+  <span><i class="l-store"></i>storage and infrastructure</span>
+</div>
+
+<!-- ============================================================ CONTEXT -->
+<section id="context" style="padding-top:20px">
+  <h2>The big picture</h2>
+  <p>There are two areas. Docker Compose runs our side: the web API (with the LangGraph flow inside it), Postgres, Keycloak for logins, and Jaeger for traces. The kind cluster is the "patient": a small Kubernetes cluster running deliberately broken apps, plus three tool servers that are the only way in.</p>
+  <p>The API has no Kubernetes password of its own. It passes the logged-in person's ID card (token) to the tool servers, and they act in Kubernetes as that person.</p>
+  <figure>
+    <div class="scroll">
+      <svg class="dg" viewBox="0 0 1100 560" role="img" aria-label="Big picture: the browser talks to the FastAPI agent API with a token from Keycloak; the API runs the LangGraph flow, stores state in Postgres, sends traces to Jaeger and calls DeepSeek; it reaches the kind cluster only through three MCP tool servers, which call Prometheus and the Kubernetes API as the human user.">
+        <defs>
+          <marker id="ah-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+          <filter id="rough-a" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="4"/><feDisplacementMap in="SourceGraphic" scale="2.4"/></filter>
+        </defs>
+        <g filter="url(#rough-a)">
+          <rect class="zone" x="190" y="16" width="458" height="532" rx="14"/>
+          <rect class="zone" x="668" y="16" width="416" height="384" rx="14"/>
+          <rect class="s-human" x="12" y="222" width="130" height="84" rx="10"/>
+          <rect class="s-store" x="220" y="52" width="200" height="56" rx="10"/>
+          <rect class="s-outer" x="220" y="146" width="410" height="232" rx="12"/>
+          <rect class="s-code" x="236" y="180" width="186" height="38" rx="8"/>
+          <rect class="s-code" x="432" y="180" width="182" height="38" rx="8"/>
+          <rect class="s-code" x="236" y="226" width="186" height="38" rx="8"/>
+          <rect class="s-llm" x="432" y="226" width="182" height="38" rx="8"/>
+          <rect class="s-code" x="236" y="272" width="378" height="38" rx="8"/>
+          <rect class="s-store" x="236" y="318" width="378" height="38" rx="8"/>
+          <rect class="s-store" x="220" y="412" width="240" height="124" rx="10"/>
+          <rect class="s-store" x="480" y="412" width="150" height="60" rx="10"/>
+          <rect class="s-code" x="700" y="60" width="150" height="48" rx="8"/>
+          <rect class="s-code" x="700" y="124" width="150" height="48" rx="8"/>
+          <rect class="s-code" x="700" y="188" width="150" height="48" rx="8"/>
+          <rect class="s-store" x="920" y="60" width="150" height="48" rx="8"/>
+          <rect class="s-store" x="920" y="124" width="150" height="112" rx="8"/>
+          <rect class="s-store" x="700" y="280" width="370" height="96" rx="10"/>
+          <rect class="s-llm" x="700" y="430" width="170" height="44" rx="8"/>
+          <rect class="s-store" x="700" y="490" width="170" height="44" rx="8"/>
+          <path class="edge" d="M77 222 V80 H218" marker-end="url(#ah-a)"/>
+          <path class="edge" d="M142 262 H218" marker-end="url(#ah-a)"/>
+          <path class="edge" d="M320 146 V110" marker-end="url(#ah-a)"/>
+          <path class="edge" d="M340 378 V410" marker-end="url(#ah-a)"/>
+          <path class="edge" d="M555 378 V410" marker-end="url(#ah-a)"/>
+          <path class="edge" d="M630 262 H684"/>
+          <path class="edge" d="M684 84 V212"/>
+          <path class="edge" d="M684 84 H698" marker-end="url(#ah-a)"/>
+          <path class="edge" d="M684 148 H698" marker-end="url(#ah-a)"/>
+          <path class="edge" d="M684 212 H698" marker-end="url(#ah-a)"/>
+          <path class="edge" d="M850 84 H918" marker-end="url(#ah-a)"/>
+          <path class="edge" d="M850 148 H918" marker-end="url(#ah-a)"/>
+          <path class="edge" d="M850 212 H918" marker-end="url(#ah-a)"/>
+          <path class="edge" d="M995 236 V278" marker-end="url(#ah-a)"/>
+          <path class="edge d" d="M1070 92 H1078 V328 H1072" marker-end="url(#ah-a)"/>
+          <path class="edge" d="M630 334 H655 V452 H698" marker-end="url(#ah-a)"/>
+          <path class="edge d" d="M655 452 V512 H698" marker-end="url(#ah-a)"/>
+        </g>
+        <text class="zl" x="206" y="38">DOCKER COMPOSE · OUR SIDE</text>
+        <text class="zl" x="684" y="38">KIND CLUSTER · THE PATIENT</text>
+        <text class="bn" x="77" y="254">Browser UI</text>
+        <text class="bs" x="77" y="274">login + timeline</text>
+        <text class="bs" x="77" y="291">alice · bob · carol</text>
+        <text class="bn" x="320" y="77">Keycloak</text>
+        <text class="bs" x="320" y="96">issues ID tokens</text>
+        <text class="bn l" x="236" y="170">FastAPI agent API</text>
+        <text class="bs" x="590" y="168">one process</text>
+        <text class="bn" x="329" y="204">check token · roles</text>
+        <text class="bn" x="523" y="204">ApprovalService</text>
+        <text class="bn" x="329" y="250">RunManager · live feed</text>
+        <text class="bn" x="523" y="250">LangGraph flow</text>
+        <text class="bn" x="425" y="296">ToolBackend: fake data | real cluster</text>
+        <text class="bn" x="425" y="342">tracing · hides personal data</text>
+        <text class="bn" x="340" y="436">Postgres</text>
+        <text class="bs l" x="236" y="458">checkpoints · save points</text>
+        <text class="bs l" x="236" y="477">store · past incidents</text>
+        <text class="bs l" x="236" y="496">audit_log · add-only</text>
+        <text class="bs l" x="236" y="515">incident_threads · owners</text>
+        <text class="bn" x="555" y="438">Jaeger</text>
+        <text class="bs" x="555" y="457">trace viewer</text>
+        <text class="bn" x="775" y="82">observability</text>
+        <text class="bs" x="775" y="99">1 look tool</text>
+        <text class="bn" x="775" y="146">k8s-read</text>
+        <text class="bs" x="775" y="163">5 look tools</text>
+        <text class="bn" x="775" y="210">k8s-write</text>
+        <text class="bs" x="775" y="227">5 change tools</text>
+        <text class="bn" x="995" y="82">Prometheus</text>
+        <text class="bs" x="995" y="99">metrics</text>
+        <text class="bn" x="995" y="172">K8s API server</text>
+        <text class="bs" x="995" y="192">checks the human</text>
+        <text class="bs" x="995" y="209">keeps its own log</text>
+        <text class="bn" x="885" y="306">company namespaces</text>
+        <text class="bs" x="885" y="330">acme-prod · checkout-api, notification-svc</text>
+        <text class="bs" x="885" y="352">globex-prod · billing-api</text>
+        <text class="bn" x="785" y="457">DeepSeek API</text>
+        <text class="bn" x="785" y="517">LangSmith</text>
+        <text class="bs l" x="882" y="456">the AI model</text>
+        <text class="bs l" x="882" y="516">AI run viewer (masked)</text>
+        <text class="el" x="148" y="73">log in</text>
+        <text class="el" x="181" y="255">token</text>
+        <text class="el" x="181" y="280">requests</text>
+        <text class="el l" x="330" y="132">check signature</text>
+        <text class="el l" x="350" y="398">save</text>
+        <text class="el l" x="565" y="398">traces</text>
+        <text class="el" x="657" y="254">MCP</text>
+        <text class="el" x="657" y="280">user token</text>
+        <text class="el" x="885" y="76">fixed queries</text>
+        <text class="el" x="885" y="140">as alice</text>
+        <text class="el" x="885" y="204">as bob</text>
+        <text class="el l" x="1003" y="262">read · change</text>
+        <text class="el" x="1078" y="214" transform="rotate(90 1078 214)">collects</text>
+        <text class="el" x="678" y="446">AI</text>
+        <text class="el" x="678" y="506">runs</text>
+      </svg>
+    </div>
+    <figcaption>The only road from our side into the cluster goes through the tool servers, and it carries the person's token. Looking around happens as the person who opened the incident (alice). The fix happens as the person who approved it (bob).</figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ STACK -->
+<section id="stack">
+  <h2>Tech stack</h2>
+  <p>Everything is open source except the AI model (DeepSeek) and the optional AI run viewer (LangSmith). One theme runs through the choices: the whole path is <b>async</b>. One Python process can wait on many slow things at once (AI calls, tool calls, live browser feeds) without getting stuck.</p>
+
+  <div class="qa">
+    <h3>Is it ASGI? Yes. What does that mean?</h3>
+    <p><b>ASGI</b> (Asynchronous Server Gateway Interface) is the agreement between a Python web <em>server</em> and a Python web <em>app</em> about how requests are handed over. Here the server is <b>Uvicorn</b> and the app is <b>FastAPI</b>. The older agreement, <b>WSGI</b> (used by classic Flask and Django), ties up one worker per request until the response is finished. ASGI lets one process juggle many requests: while one request waits, the process works on others.</p>
+    <div class="plain"><b>Analogy</b>A WSGI waiter stands at your table until your food arrives. An ASGI waiter takes your order, serves other tables, and comes back when the kitchen rings the bell.</div>
+    <p><b>Why it matters here:</b> an incident run spends most of its time waiting. A DeepSeek reply takes seconds, a tool call goes over the network, verify polls for 45+ seconds, and every open incident in the browser keeps a live feed (SSE) connected for minutes. With WSGI, each of those would hold a worker for the whole time. With ASGI, a single Uvicorn process handles all of them. The graph runs themselves are background tasks on the same event loop, and every layer below is async too:</p>
+<pre class="flow">browser ──HTTP/SSE──▶ Uvicorn (ASGI server) ──▶ FastAPI (async routes)
+                                                  └─▶ LangGraph astream()   ── background task per run
+                                                       ├─▶ psycopg (async)   ── Postgres
+                                                       ├─▶ httpx (async)     ── MCP tool servers
+                                                       └─▶ DeepSeek client   ── AI calls</pre>
+    <p>The one place we had to care: on Windows, async psycopg needs a "selector" event loop. Local scripts set it explicitly (<code>run_async</code> in <code>config.py</code>). The API runs on Linux in Docker, so it doesn't need that.</p>
+  </div>
+
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Piece</th><th>What it is</th><th>Why we chose it</th><th>Instead of</th></tr></thead>
+      <tbody>
+        <tr class="grp"><td colspan="4">Language and project tools</td></tr>
+        <tr><td>Python<span class="ver">3.13</span></td><td>The language</td><td>LangGraph, LangChain and the MCP SDK are Python-first, and Python has good async support. The Docker image uses the same version, so local and container behave alike.</td><td>TypeScript (LangGraph.js exists, but the agent and MCP tooling is richest in Python)</td></tr>
+        <tr><td>uv<span class="ver">0.13 (in Docker)</span></td><td>Installs packages, creates the virtual environment, runs commands (<code>uv run …</code>). One tool replacing pip, venv and pip-tools.</td><td>Very fast installs. <code>uv.lock</code> pins every package version, so your laptop, Docker and CI get exactly the same set. <code>uv sync</code> is the only setup step.</td><td>pip + requirements.txt (no real lock of sub-dependencies), Poetry (slower), conda</td></tr>
+        <tr><td>Ruff<span class="ver">0.17</span></td><td>Linter and code formatter in one</td><td>Very fast, one config, replaces several tools.</td><td>flake8 + black + isort</td></tr>
+        <tr><td>pytest + pytest-asyncio<span class="ver">pytest 9.2</span></td><td>Test runner, with support for async tests</td><td>Standard. Markers keep slow AI evals (<code>-m eval</code>) out of the default run.</td><td>unittest</td></tr>
+
+        <tr class="grp"><td colspan="4">Web API and UI</td></tr>
+        <tr><td>FastAPI<span class="ver">0.165</span></td><td>Async web framework (an ASGI app)</td><td>Async from top to bottom. Request bodies are checked by Pydantic automatically. Its dependency system (<code>Depends</code>) gives us one place to turn a token into a user, so swapping the fake dev user for real Keycloak tokens changed one function.</td><td>Flask (WSGI, sync by default), Django (heavier, more than we need)</td></tr>
+        <tr><td>Uvicorn<span class="ver">0.54</span></td><td>ASGI server: listens on port 8000 and passes requests to FastAPI</td><td>The standard server for FastAPI. We run one process, which keeps the in-process run manager simple.</td><td>Gunicorn with several workers (would need a shared job queue)</td></tr>
+        <tr><td>SSE (server-sent events)</td><td>A one-way live feed from server to browser over normal HTTP</td><td>The browser only needs to listen for timeline updates, never send. SSE is simpler than WebSockets for that. We read it with <code>fetch</code> streaming because the browser's built-in <code>EventSource</code> can't send the login token header.</td><td>WebSockets, polling</td></tr>
+        <tr><td>Plain HTML + JavaScript</td><td>The one-page UI, served by FastAPI</td><td>No build step, no framework. The project's focus is the backend, and the login (PKCE) is a small hand-written function, not a library.</td><td>React or another SPA framework</td></tr>
+
+        <tr class="grp"><td colspan="4">AI and agents</td></tr>
+        <tr><td>LangGraph<span class="ver">1.2</span></td><td>Runs the flow: steps, shared state, save points, pauses, parallel branches</td><td>Built-in durability (Postgres save points), human-in-the-loop pause (<code>interrupt</code>), parallel fan-out (<code>Send</code>), time travel. The flow is an explicit graph you can draw and test, not a hidden agent loop.</td><td>A plain LangChain agent (no durable pause), CrewAI or AutoGen (less control over the exact flow), a hand-written loop</td></tr>
+        <tr><td>LangChain<span class="ver">1.5</span></td><td>Common interface for AI models, tools and structured output</td><td><code>init_chat_model</code> picks the provider from a setting, so DeepSeek and Gemini are interchangeable. Tools and structured output work the same with any provider.</td><td>Calling each provider's SDK directly</td></tr>
+        <tr><td>DeepSeek <code>deepseek-flash</code></td><td>The AI model</td><td>Good at tool calling and cheap enough to run evals repeatedly. Configurable, not hard-wired.</td><td>Gemini (supported by setting <code>COPILOT_LLM_PROVIDER</code>)</td></tr>
+        <tr><td>Pydantic<span class="ver">2.14</span></td><td>Typed data classes with validation</td><td>The AI's forms (triage report, diagnosis, proposed action), the API's request bodies, and settings from <code>.env</code> (pydantic-settings) all use one system.</td><td>dataclasses + hand-written checks</td></tr>
+
+        <tr class="grp"><td colspan="4">Tools</td></tr>
+        <tr><td>MCP SDK (FastMCP)<span class="ver">mcp 1.30</span></td><td>Model Context Protocol: a standard way to offer tools as a small web service</td><td>Tools run inside the cluster, separate from the agent. The agent never holds cluster credentials. Token checking is built into the SDK. We use the "streamable HTTP" transport so the servers are ordinary HTTP services.</td><td>The agent calling the Kubernetes API directly (it would need its own cluster credentials)</td></tr>
+        <tr><td>langchain-mcp-adapters<span class="ver">0.3</span></td><td>Client that connects to MCP servers and calls their tools</td><td>Turns MCP tools into LangChain tools and forwards headers (the user's token) on every call.</td><td>Writing our own MCP client</td></tr>
+        <tr><td>httpx<span class="ver">0.28</span></td><td>Async HTTP client</td><td>Used by the MCP servers to call Kubernetes and Prometheus, and by the API to fetch Keycloak's public keys. It's also what carries trace ids between services.</td><td>requests (not async)</td></tr>
+
+        <tr class="grp"><td colspan="4">Data</td></tr>
+        <tr><td>PostgreSQL<span class="ver">17</span></td><td>The database</td><td>One reliable place for save points (checkpointer), long-term memory (Store), the audit log and incident ownership. Its user roles and permissions let us make the audit log add-only at the database level.</td><td>Redis for save points (memory-first, no table permissions), SQLite (one file, no user roles)</td></tr>
+        <tr><td>psycopg<span class="ver">3.3 (async, with pool)</span></td><td>Python's Postgres driver</td><td>Async, and it's what LangGraph's Postgres checkpointer and Store are built on.</td><td>asyncpg (not supported by the LangGraph Postgres package)</td></tr>
+
+        <tr class="grp"><td colspan="4">Logins and identity</td></tr>
+        <tr><td>Keycloak<span class="ver">26.4, dev mode</span></td><td>Open-source login server (OpenID Connect)</td><td>Runs locally with no account. The realm (users, roles, company groups, token contents) is imported from a JSON file, so the setup is reproducible.</td><td>Auth0 or Okta (hosted, account needed), hand-made tokens</td></tr>
+        <tr><td>PyJWT<span class="ver">2.15</span></td><td>Reads and verifies tokens</td><td>Checks the signature against Keycloak's published public keys (JWKS), plus issuer, audience and expiry.</td><td>python-jose</td></tr>
+
+        <tr class="grp"><td colspan="4">Infrastructure</td></tr>
+        <tr><td>Docker Compose</td><td>Starts several containers with one command</td><td>Our side (API, Postgres, Keycloak, Jaeger) comes up with <code>docker compose up</code>.</td><td>Running each service by hand</td></tr>
+        <tr><td>kind<span class="ver">Kubernetes 1.34</span></td><td>"Kubernetes in Docker": a real cluster on a laptop</td><td>A real API server, so RBAC, impersonation and the API server's audit log all behave as in production. We pass it our own audit policy at start.</td><td>minikube or k3d (also fine); mocking Kubernetes (wouldn't prove the permission story)</td></tr>
+        <tr><td>Prometheus + kube-state-metrics<span class="ver">3.5 · 2.16</span></td><td>Collects metrics: app memory, CPU, request rates, restart counts</td><td>The standard metrics stack, installed from plain manifest files (no Helm), so you can read every line.</td><td>A Helm chart (less transparent)</td></tr>
+        <tr><td>The broken demo app</td><td>A tiny Python web service using only the standard library</td><td>No dependencies, small image. Faults (memory growth, bad settings, errors, slowness) are switched on with environment variables.</td><td>A real third-party app</td></tr>
+
+        <tr class="grp"><td colspan="4">Observability and CI</td></tr>
+        <tr><td>OpenTelemetry<span class="ver">SDK 1.45</span></td><td>The standard for traces, not tied to any vendor</td><td>One trace can cross the API, the MCP servers and the Kubernetes call. Ready-made instrumentation for FastAPI and httpx.</td><td>Vendor-specific tracing libraries</td></tr>
+        <tr><td>Jaeger<span class="ver">2.9</span></td><td>Trace viewer</td><td>Accepts OpenTelemetry directly and runs as a single container.</td><td>Grafana Tempo (needs Grafana as well)</td></tr>
+        <tr><td>LangSmith</td><td>LangChain's hosted viewer for AI runs: prompts, outputs, tokens</td><td>Shows the AI conversation in detail, which Jaeger doesn't. Optional, and personal data is masked before upload.</td><td>Langfuse (self-hostable alternative)</td></tr>
+        <tr><td>GitHub Actions</td><td>CI</td><td>Runs the normal tests with a Postgres service on every push. Evals run on demand or nightly, because they need an API key and cost money.</td><td>Other CI systems</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============================================================ GRAPH -->
+<section id="graph">
+  <h2>The main flow</h2>
+  <p>Nine steps. The middle one, <b>supervisor</b>, works like a traffic controller: every agent reports back to it, and it sends the work to the next stop. It is plain Python with no AI in it. (Why that works is answered in <a href="#questions">your questions</a>.)</p>
+  <figure>
+    <div class="scroll">
+      <svg class="dg" viewBox="0 0 1050 600" role="img" aria-label="Main flow: START, recall, supervisor. The supervisor sends work to triage, diagnosis and remediation, and each returns to the supervisor. When a fix is proposed the supervisor goes to approval_gate, which pauses for a person, then execute_action, verify and finalize. Rejections, failures and false alarms go straight to finalize.">
+        <defs>
+          <marker id="ah-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+          <filter id="rough-b" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="2.4"/></filter>
+        </defs>
+        <g filter="url(#rough-b)">
+          <rect class="s-pill" x="20" y="232" width="70" height="32" rx="16"/>
+          <rect class="s-code" x="120" y="222" width="120" height="52" rx="10"/>
+          <rect class="s-code" x="290" y="214" width="150" height="68" rx="10" style="stroke-width:2.4"/>
+          <rect class="s-llm" x="520" y="40" width="130" height="60" rx="10"/>
+          <rect class="s-llm" x="710" y="40" width="130" height="60" rx="10"/>
+          <rect class="s-llm" x="900" y="40" width="130" height="60" rx="10"/>
+          <rect class="s-human" x="520" y="380" width="130" height="50" rx="10"/>
+          <rect class="s-code" x="710" y="380" width="130" height="50" rx="10"/>
+          <rect class="s-code" x="900" y="380" width="130" height="50" rx="10"/>
+          <rect class="s-llm" x="710" y="480" width="130" height="50" rx="10"/>
+          <rect class="s-pill" x="740" y="556" width="70" height="30" rx="15"/>
+          <path class="edge" d="M90 248 H118" marker-end="url(#ah-b)"/>
+          <path class="edge" d="M240 248 H288" marker-end="url(#ah-b)"/>
+          <path class="edge d" d="M365 214 V160 H945"/>
+          <path class="edge d" d="M565 160 V102" marker-end="url(#ah-b)"/>
+          <path class="edge d" d="M755 160 V102" marker-end="url(#ah-b)"/>
+          <path class="edge d" d="M945 160 V102" marker-end="url(#ah-b)"/>
+          <path class="edge" d="M605 100 V130"/>
+          <path class="edge" d="M795 100 V130"/>
+          <path class="edge" d="M985 100 V130 H385 V212" marker-end="url(#ah-b)"/>
+          <path class="edge d" d="M385 282 V405 H518" marker-end="url(#ah-b)"/>
+          <path class="edge d" d="M650 405 H708" marker-end="url(#ah-b)"/>
+          <path class="edge" d="M840 405 H898" marker-end="url(#ah-b)"/>
+          <path class="edge" d="M965 430 V505 H842" marker-end="url(#ah-b)"/>
+          <path class="edge d" d="M585 430 V500 H708" marker-end="url(#ah-b)"/>
+          <path class="edge" d="M775 430 V478" marker-end="url(#ah-b)"/>
+          <path class="edge d" d="M330 282 V520 H708" marker-end="url(#ah-b)"/>
+          <path class="edge" d="M775 530 V554" marker-end="url(#ah-b)"/>
+        </g>
+        <text class="bn" x="55" y="253">START</text>
+        <text class="bn" x="180" y="245">recall</text>
+        <text class="bs" x="180" y="263">past incidents</text>
+        <text class="bn" x="365" y="240">supervisor</text>
+        <text class="bs" x="365" y="258">fixed rules</text>
+        <text class="bs" x="365" y="273">no AI</text>
+        <text class="bn" x="585" y="66">triage</text>
+        <text class="bs" x="585" y="86">is it real?</text>
+        <text class="bn" x="775" y="66">diagnosis</text>
+        <text class="bs" x="775" y="86">why did it break?</text>
+        <text class="bn" x="965" y="66">remediation</text>
+        <text class="bs" x="965" y="86">what's the fix?</text>
+        <text class="bn" x="585" y="402">approval_gate</text>
+        <text class="bs" x="585" y="420">risky? → wait</text>
+        <text class="bn" x="775" y="402">execute_action</text>
+        <text class="bs" x="775" y="420">apply as approver</text>
+        <text class="bn" x="965" y="402">verify</text>
+        <text class="bs" x="965" y="420">healthy 45 s?</text>
+        <text class="bn" x="775" y="502">finalize</text>
+        <text class="bs" x="775" y="520">report + remember</text>
+        <text class="bn" x="775" y="576">END</text>
+        <text class="el l" x="470" y="151">supervisor sends work to one agent at a time</text>
+        <text class="el l" x="470" y="122">each agent hands back a filled-in form</text>
+        <text class="el" x="452" y="397">fix proposed</text>
+        <text class="el" x="679" y="397">approved</text>
+        <text class="el" x="869" y="397">done</text>
+        <text class="el" x="903" y="497">always</text>
+        <text class="el l" x="592" y="470">rejected</text>
+        <text class="el l" x="782" y="458">failed</text>
+        <text class="el" x="470" y="512">false alarm · no safe fix · unsure</text>
+        <text class="el r hu" x="576" y="452">pauses here until</text>
+        <text class="el r hu" x="576" y="467">an approver decides</text>
+      </svg>
+    </div>
+    <figcaption>Dashed arrows are choices (the supervisor or the gate picks one). Solid arrows always happen. A run can sit paused at the approval gate for hours, which is why its state is saved to Postgres.</figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ SUBGRAPHS -->
+<section id="subgraphs">
+  <h2>Inside an agent</h2>
+  <p>All three agents are built from the same template. The AI gets the look-only tools and loops: think, call tools, read the results, think again. Each agent has a limit on how many rounds of tool calls it may make. When it stops, a last step called <b>conclude</b> makes it fill in a fixed form (for triage: severity, is it real, summary). Code can then read that form reliably.</p>
+  <p>Diagnosis is special. First it asks the AI for up to 3 possible causes. Then it starts one investigator per cause, <em>at the same time</em>, like three doctors testing three theories in parallel. Finally it reads their verdicts and names the cause.</p>
+  <figure>
+    <div class="scroll">
+      <svg class="dg" viewBox="0 0 1050 300" role="img" aria-label="Left: the agent template, optional prepare, then the agent loops with tools until done or out of rounds, then conclude fills in the form. Right: diagnosis proposes up to three causes, runs one investigator per cause in parallel, and concludes from their verdicts.">
+        <defs>
+          <marker id="ah-c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+          <filter id="rough-c" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="11"/><feDisplacementMap in="SourceGraphic" scale="2.4"/></filter>
+        </defs>
+        <g filter="url(#rough-c)">
+          <line class="sep" x1="528" y1="14" x2="528" y2="286"/>
+          <rect class="s-pill" x="20" y="120" width="64" height="30" rx="15"/>
+          <rect class="s-code s-opt" x="110" y="115" width="100" height="40" rx="8"/>
+          <rect class="s-llm" x="240" y="110" width="140" height="50" rx="10"/>
+          <rect class="s-code" x="240" y="230" width="140" height="50" rx="10"/>
+          <rect class="s-llm" x="420" y="110" width="90" height="50" rx="10"/>
+          <rect class="s-pill" x="433" y="204" width="64" height="28" rx="14"/>
+          <path class="edge" d="M84 135 H108" marker-end="url(#ah-c)"/>
+          <path class="edge" d="M210 135 H238" marker-end="url(#ah-c)"/>
+          <path class="edge d" d="M290 160 V228" marker-end="url(#ah-c)"/>
+          <path class="edge" d="M330 230 V162" marker-end="url(#ah-c)"/>
+          <path class="edge d" d="M380 135 H418" marker-end="url(#ah-c)"/>
+          <path class="edge" d="M465 160 V202" marker-end="url(#ah-c)"/>
+          <rect class="s-llm" x="552" y="120" width="110" height="50" rx="10"/>
+          <rect class="s-llm" x="722" y="50" width="150" height="46" rx="10"/>
+          <rect class="s-llm" x="722" y="122" width="150" height="46" rx="10"/>
+          <rect class="s-llm" x="722" y="194" width="150" height="46" rx="10"/>
+          <rect class="s-llm" x="932" y="120" width="100" height="50" rx="10"/>
+          <path class="edge d" d="M662 145 L720 74" marker-end="url(#ah-c)"/>
+          <path class="edge d" d="M662 145 H720" marker-end="url(#ah-c)"/>
+          <path class="edge d" d="M662 145 L720 216" marker-end="url(#ah-c)"/>
+          <path class="edge" d="M872 74 L930 138" marker-end="url(#ah-c)"/>
+          <path class="edge" d="M872 145 H930" marker-end="url(#ah-c)"/>
+          <path class="edge" d="M872 216 L930 152" marker-end="url(#ah-c)"/>
+        </g>
+        <text class="pt" x="20" y="34">agent template</text>
+        <text class="bs l" x="20" y="54">triage · investigator · remediation</text>
+        <text class="bn" x="52" y="140">START</text>
+        <text class="bn" x="160" y="140">prepare</text>
+        <text class="bs" x="160" y="174">remediation only:</text>
+        <text class="bs" x="160" y="189">load runbook</text>
+        <text class="bn" x="310" y="132">agent</text>
+        <text class="bs" x="310" y="150">thinking on</text>
+        <text class="bn" x="310" y="252">tools</text>
+        <text class="bs" x="310" y="270">retries on hiccups</text>
+        <text class="bn" x="465" y="132">conclude</text>
+        <text class="bs" x="465" y="150">fills the form</text>
+        <text class="bn" x="465" y="223">END</text>
+        <text class="el r" x="284" y="198">call tools</text>
+        <text class="el l" x="336" y="198">answers</text>
+        <text class="el" x="399" y="126">done</text>
+        <text class="el l" x="392" y="258">out of rounds → conclude</text>
+        <text class="pt" x="552" y="34">diagnosis</text>
+        <text class="bn" x="607" y="142">propose</text>
+        <text class="bs" x="607" y="160">up to 3 causes</text>
+        <text class="bn" x="797" y="71">investigate #1</text>
+        <text class="bs" x="797" y="87">an agent</text>
+        <text class="bn" x="797" y="143">investigate #2</text>
+        <text class="bs" x="797" y="159">an agent</text>
+        <text class="bn" x="797" y="215">investigate #3</text>
+        <text class="bs" x="797" y="231">an agent</text>
+        <text class="bn" x="982" y="142">conclude</text>
+        <text class="bs" x="982" y="160">names the cause</text>
+        <text class="el" x="690" y="138">Send</text>
+        <text class="el" x="877" y="268">the three verdicts are collected into one list</text>
+      </svg>
+    </div>
+    <figcaption><code>Send</code> is LangGraph's way to start several copies of a step at once, each with its own input. The investigators' verdicts are merged into one list automatically (a "reducer" tells LangGraph to append instead of overwrite).</figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ AGENTS -->
+<section id="agents">
+  <h2>Agents and AI calls</h2>
+  <p>Three agents use tools. Because the investigator runs once per suspected cause, up to three of them can work at the same time. Three more steps are single AI calls that just fill in a form, with no tools. The supervisor uses no AI.</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Step</th><th>What it is</th><th>Tools</th><th>Limit</th><th>What it hands back</th></tr></thead>
+      <tbody>
+        <tr><td>triage</td><td><span class="tag llm">agent</span></td><td>6 look tools</td><td class="num">3 tool rounds</td><td>Severity, is it real (actionable), summary</td></tr>
+        <tr><td>propose</td><td><span class="tag llm">one AI call</span></td><td>none</td><td class="num">max 3 causes</td><td>List of suspected causes, each with checks to run</td></tr>
+        <tr><td>investigator (×3)</td><td><span class="tag llm">agent</span>, in parallel</td><td>6 look tools</td><td class="num">3 rounds each</td><td>Verdict on one cause (supported, refuted or unclear) with evidence</td></tr>
+        <tr><td>diagnosis conclude</td><td><span class="tag llm">one AI call</span></td><td>none</td><td class="num">2 attempts</td><td>Cause category, explanation, confidence</td></tr>
+        <tr><td>remediation</td><td><span class="tag llm">agent</span> + runbook</td><td>6 look tools</td><td class="num">2 tool rounds</td><td>One proposed fix (as a typed action), or "no safe fix"</td></tr>
+        <tr><td>finalize</td><td><span class="tag llm">one AI call</span></td><td>none</td><td class="num">3 retries</td><td>Written report; also saves the incident to memory</td></tr>
+        <tr><td>supervisor</td><td><span class="tag code">plain Python</span></td><td>none</td><td class="num">80 steps max per run</td><td>Which step runs next</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The cause category comes from a fixed list: <code>oom</code> (out of memory), <code>cpu_saturation</code>, <code>dependency_down</code>, <code>bad_config</code>, <code>bad_image</code>, <code>no_issue</code>, <code>unknown</code>. A fixed list means code can route on it, tests can grade it, and remediation can pick the matching runbook.</p>
+</section>
+
+<!-- ============================================================ TOOLS -->
+<section id="tools">
+  <h2>Tools</h2>
+  <p>The AI can <b>look</b> with 6 tools. It cannot <b>change</b> anything itself. For a change it can only write a request on a form ("roll back checkout-api to version 1"). Only one step, <code>execute_action</code>, can carry out such a request, and it sits after the approval gate. So there is no path where a change skips the gate.</p>
+  <div class="plain"><b>In plain words</b>The AI is like a junior doctor who can examine the patient and write a prescription, but cannot open the medicine cabinet. Only the pharmacist can, and only with a signed prescription.</div>
+  <div class="two">
+    <div class="tbl">
+      <table style="min-width:0">
+        <thead><tr><th>Look tool</th><th>What it shows the AI</th></tr></thead>
+        <tbody>
+          <tr><td>list_pods</td><td>running or crashing, restart count, last crash reason</td></tr>
+          <tr><td>describe_pod</td><td>memory and CPU limits, settings (secret values hidden)</td></tr>
+          <tr><td>get_pod_logs</td><td>what the app printed, including before its last crash</td></tr>
+          <tr><td>get_events</td><td>Kubernetes notices: OOMKilled, BackOff, failed image pulls</td></tr>
+          <tr><td>describe_deployment</td><td>current version and the history of releases</td></tr>
+          <tr><td>query_metrics</td><td>memory, CPU, restarts, error rate, slowest response times</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="tbl">
+      <table style="min-width:0">
+        <thead><tr><th>Change action</th><th>Needs a human?</th></tr></thead>
+        <tbody>
+          <tr><td>restart_deployment</td><td>no, unless the namespace is production</td></tr>
+          <tr><td>scale_deployment</td><td>yes (scaling to zero: always)</td></tr>
+          <tr><td>patch_resources</td><td>yes</td></tr>
+          <tr><td>set_env</td><td>yes</td></tr>
+          <tr><td>rollback_deployment</td><td>yes</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <ul>
+    <li><b>Fake data or a real cluster, same flow.</b> Tools talk to a <code>ToolBackend</code>. In tests it replays a recorded incident file. In live mode it calls the real tool servers. Nothing else in the flow changes.</li>
+    <li><b>The AI never writes database or metrics queries.</b> It picks a metric by name ("memory_usage") and the server builds the query, and only for the caller's own company.</li>
+    <li><b>Tools never get "who am I" from the AI.</b> The user's identity is handed to tools by our code (LangGraph's runtime context), so the AI cannot pretend to be someone else.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ APPROVAL -->
+<section id="approval">
+  <h2>Approval, step by step</h2>
+  <p>This is the live out-of-memory incident: alice opens it, bob approves the fix. All the checks before the flow continues are ordinary Python in the API. The flow then checks again on its own.</p>
+  <figure>
+    <div class="scroll">
+      <svg class="dg" viewBox="0 0 1040 720" role="img" aria-label="Sequence: alice starts the incident; the flow investigates as alice and pauses at the approval gate; bob approves with the fingerprint; the API checks role, company, four-eyes and fingerprint, writes the approved audit row, and resumes the flow as bob; the executor finds the approved row and calls the change server with bob's token; the audit gets an executed row; verify waits for stability and finalize reports resolved.">
+        <defs>
+          <marker id="ah-d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+          <filter id="rough-d" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="13"/><feDisplacementMap in="SourceGraphic" scale="2.2"/></filter>
+        </defs>
+        <g filter="url(#rough-d)">
+          <rect class="s-human" x="10" y="16" width="120" height="40" rx="8"/>
+          <rect class="s-human" x="140" y="16" width="120" height="40" rx="8"/>
+          <rect class="s-code" x="295" y="16" width="130" height="40" rx="8"/>
+          <rect class="s-llm" x="475" y="16" width="130" height="40" rx="8"/>
+          <rect class="s-store" x="655" y="16" width="130" height="40" rx="8"/>
+          <rect class="s-code" x="825" y="16" width="150" height="40" rx="8"/>
+          <path class="life" d="M70 56 V706"/>
+          <path class="life" d="M200 56 V706"/>
+          <path class="life" d="M360 56 V706"/>
+          <path class="life" d="M540 56 V706"/>
+          <path class="life" d="M720 56 V706"/>
+          <path class="life" d="M900 56 V706"/>
+          <rect class="s-human" x="465" y="226" width="150" height="46" rx="8"/>
+          <rect class="s-code" x="255" y="356" width="210" height="66" rx="8"/>
+          <rect class="s-code" x="435" y="498" width="210" height="44" rx="8"/>
+          <rect class="s-code" x="455" y="626" width="170" height="30" rx="8"/>
+          <path class="edge" d="M70 95 H358" marker-end="url(#ah-d)"/>
+          <path class="edge" d="M360 130 H538" marker-end="url(#ah-d)"/>
+          <path class="edge" d="M540 165 H898" marker-end="url(#ah-d)"/>
+          <path class="edge" d="M540 200 H718" marker-end="url(#ah-d)"/>
+          <path class="edge d" d="M360 300 H72" marker-end="url(#ah-d)"/>
+          <path class="edge" d="M200 336 H358" marker-end="url(#ah-d)"/>
+          <path class="edge" d="M360 448 H718" marker-end="url(#ah-d)"/>
+          <path class="edge" d="M360 483 H538" marker-end="url(#ah-d)"/>
+          <path class="edge" d="M540 572 H898" marker-end="url(#ah-d)"/>
+          <path class="edge" d="M540 608 H718" marker-end="url(#ah-d)"/>
+          <path class="edge d" d="M360 690 H202" marker-end="url(#ah-d)"/>
+        </g>
+        <text class="bn" x="70" y="41">alice · sre</text>
+        <text class="bn" x="200" y="41">bob · approver</text>
+        <text class="bn" x="360" y="41">FastAPI</text>
+        <text class="bn" x="540" y="41">LangGraph</text>
+        <text class="bn" x="720" y="41">Postgres</text>
+        <text class="bn" x="900" y="41">tools → K8s</text>
+        <text class="el" x="214" y="88">open incident · alice's token</text>
+        <text class="el" x="449" y="123">run as alice</text>
+        <text class="el" x="719" y="158">look around · as alice</text>
+        <text class="el" x="629" y="193">save after each step</text>
+        <text class="bn" x="540" y="246">approval_gate</text>
+        <text class="bs" x="540" y="263">risky → pause</text>
+        <text class="el" x="215" y="293">live feed: approval needed</text>
+        <text class="el" x="280" y="329">approve + fingerprint</text>
+        <text class="bs" x="360" y="376">same company? (404)</text>
+        <text class="bs" x="360" y="393">approver, not own? (403)</text>
+        <text class="bs" x="360" y="410">fingerprint matches? (409)</text>
+        <text class="el" x="539" y="441">write audit row 'approved'</text>
+        <text class="el" x="449" y="476">continue, now as bob</text>
+        <text class="bs" x="540" y="516">gate re-checks fingerprint</text>
+        <text class="bs" x="540" y="532">executor finds 'approved' row</text>
+        <text class="el" x="719" y="565">rollback · with bob's token</text>
+        <text class="el" x="900" y="592">K8s acts as bob</text>
+        <text class="el" x="629" y="601">audit row 'executed'</text>
+        <text class="bs" x="540" y="645">verify: healthy 45 s</text>
+        <text class="el" x="280" y="683">live feed: resolved</text>
+      </svg>
+    </div>
+    <figcaption>The <code>approved</code> row is written <em>before</em> the flow continues, and the database allows only one such row per action. So if bob double-clicks, the second click gets an error and the fix runs once. (In the diagram, 403 means "not allowed", 404 means "not found" and 409 means "conflict".)</figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ SECURITY -->
+<section id="security">
+  <h2>Safety layers</h2>
+  <p>Any one of these layers would stop a wrong change on its own. They are stacked, like several locks on one door, so a bug in one is caught by the next.</p>
+  <ol class="ladder">
+    <li><div><b>Keycloak hands out ID cards (tokens).</b> Each token says who you are, your company, and your roles (<code>sre</code>, or also <code>sre-approver</code>).<div class="where">infra/keycloak/realm-incident-copilot.json</div></div></li>
+    <li><div><b>The API checks the ID card is genuine and not expired.</b> You only ever see your own company's incidents. Another company's incident looks "not found" instead of "forbidden", so you can't even tell it exists.<div class="where">auth/jwt.py · auth/rbac.py</div></div></li>
+    <li><div><b>Before the flow continues, the API checks the approver:</b> has the approver role, same company, isn't the person who opened the incident (the four-eyes rule), the incident really is waiting for approval, and the fingerprint matches what is waiting.<div class="where">approval/service.py</div></div></li>
+    <li><div><b>The approval covers one exact action.</b> The fingerprint is made from the action, the incident and the company. Approving "roll back checkout-api" can't be reused for a different action or incident.<div class="where">approval/hashing.py</div></div></li>
+    <li><div><b>The gate checks the fingerprint again when the flow continues.</b> Even if the API had a bug, a mismatched approval is refused inside the flow.<div class="where">graph/gate.py · approval_gate</div></div></li>
+    <li><div><b>The executor looks for the 'approved' row in the audit log</b> before doing anything, and records 'blocked' if it's missing. If an 'executed' row already exists, it does nothing, so the fix never runs twice, even after a crash.<div class="where">graph/gate.py · execute_action</div></div></li>
+    <li><div><b>The tool server checks the ID card itself.</b> Then it tells Kubernetes "act as <code>kc:bob</code>, member of acme". Only the change server, and only for approvers, adds "member of acme approvers".<div class="where">mcp_servers/common.py</div></div></li>
+    <li><div><b>Kubernetes applies bob's permissions.</b> Approvers may change apps only in their own company's namespaces. The tool servers' own accounts can do nothing except "act as" a short list of names. Kubernetes' own log records both the tool server and bob.<div class="where">infra/kind/manifests/10-rbac.yaml</div></div></li>
+    <li><div><b>The audit log is written in ink.</b> The app's database account is not allowed to edit or delete rows, a database trigger blocks it as well, and each row contains a fingerprint of the row before it. Changing an old row breaks the chain, and a check script finds where.<div class="where">infra/postgres/schema.sql · approval/audit.py</div></div></li>
+  </ol>
+</section>
+
+<!-- ============================================================ QUESTIONS -->
+<section id="questions">
+  <h2>Your questions</h2>
+
+  <div class="qa">
+    <h3>1. The supervisor routes in code, with no AI. How does that work?</h3>
+    <p>The AI is still involved. It just isn't the one choosing the next step. Each agent ends by filling in a fixed form (structured output). Triage's form has a yes/no box called <code>actionable</code>. Diagnosis's form has a <code>category</code> from the fixed list and a <code>confidence</code> of low, medium or high. Remediation's form either contains an action or doesn't.</p>
+    <p>The supervisor is a short Python function that reads those boxes, top to bottom, and returns the first matching rule. A simplified version of <code>next_step</code> in <code>graph/supervisor.py</code>:</p>
+<pre>if no triage yet:                         go to triage
+if triage.actionable is False:            go to finalize     <span class="c"># false alarm</span>
+if no diagnosis yet:                      go to diagnosis
+if diagnosis.category == "no_issue":      go to finalize
+if confidence is low and attempts &lt; 2:    go to diagnosis    <span class="c"># try new theories</span>
+if still unsure after 2 attempts:         go to finalize     <span class="c"># hand to a human</span>
+if no remediation yet:                    go to remediation
+if a fix was proposed:                    go to approval_gate
+otherwise:                                go to finalize     <span class="c"># no safe fix</span></pre>
+    <p>It returns the choice to LangGraph as <code>Command(goto="diagnosis")</code>, which is how a node says "run that step next".</p>
+    <div class="plain"><b>Analogy</b>The doctors examine the patient and fill in the chart. The flowchart on the ward wall ("if the triage nurse ticks 'not urgent', discharge") decides where the patient goes next. Nobody has to improvise the route.</div>
+    <p><b>Why do it this way?</b> Same answers in, same route out, every time. It's free (no AI call), fast, and testable with plain unit tests. It can't loop forever or skip a step because the AI got creative. And when something goes wrong, you can read exactly why it went where it did. <b>The price:</b> it's less flexible. A situation the rules don't cover needs a code change. And the route is only as good as the facts in the forms, so if triage wrongly ticks "not actionable", the supervisor trusts it. That's exactly what happened when you ran the incident on an already-healed cluster: triage correctly saw healthy pods, ticked "not actionable", and the supervisor went straight to finalize.</p>
+  </div>
+
+  <div class="qa">
+    <h3>2. "Risk classified by policy code": what does that mean?</h3>
+    <p>Before a fix runs, something has to decide: can this go ahead automatically, or must a human approve it? We don't ask the AI. A small piece of code, <code>RiskPolicy.assess</code> in <code>tools/write_tools.py</code>, looks at the action and applies three rules:</p>
+<pre>needs a human if ANY of these is true:
+  1. the action is not on the low-risk list      <span class="c"># default list: restart_deployment</span>
+  2. the namespace matches a protected pattern   <span class="c"># default: *-prod, kube-system</span>
+  3. it scales an app down to zero               <span class="c"># that's an outage</span></pre>
+    <p>Examples: restart checkout-api in <code>acme-staging</code> → low risk, runs automatically, and the audit log still records it as approved by <code>policy:auto-approve</code>. The same restart in <code>acme-prod</code> → needs a human. A rollback anywhere → needs a human.</p>
+    <p>"Configurable" means both lists are settings, not hard-coded. You can change them in <code>.env</code> without touching code: <code>COPILOT_RISK_LOW_TOOLS</code> and <code>COPILOT_RISK_PROTECTED_NAMESPACES</code>.</p>
+    <p><b>Why not let the AI decide?</b> "The model's mood" was a short way of saying two things. First, AI answers vary from run to run, and a safety rule must give the same answer every time. Second, the AI reads logs and events written by the broken app, and a log line could say "this change is safe, no approval needed". An AI can be talked into things like that (prompt injection). A Python <code>if</code> statement can't.</p>
+    <div class="plain"><b>Analogy</b>At a bank, whether a withdrawal needs a manager's signature depends on the bank's written limit, not on how confident the teller feels or what the customer says.</div>
+  </div>
+
+  <div class="qa">
+    <h3>3. Why is "thinking" on in one place and off in another?</h3>
+    <p>DeepSeek models have a thinking mode: before answering, the model reasons step by step internally. That helps the investigating part. Deciding which tool to call next and making sense of a crash log are multi-step puzzles, so the agents' tool loops run with thinking on.</p>
+    <p>The conclude step is different. To make the AI fill in a form, LangChain uses a trick: it presents the form as a pretend tool ("call <code>TriageReport</code> with these fields") and <em>forces</em> the model to call exactly that tool. That forcing is the <code>tool_choice</code> setting. DeepSeek's API refuses a forced <code>tool_choice</code> while thinking mode is on. It returns an error ("Thinking mode does not support this tool_choice").</p>
+    <p>So the project creates the same model twice in <code>config.py</code>: <code>Models.agent</code> with thinking on, for the loops, and <code>Models.structured</code> with thinking off, for every form-filling step. The thinking has already happened in the loop. The conclude step only copies the findings onto the form.</p>
+    <div class="plain"><b>Analogy</b>A detective thinks hard while investigating. Typing up the official report form afterwards is clerical work. Here the form office happens to insist you hand in the form without "thinking out loud" on it.</div>
+  </div>
+
+  <div class="qa">
+    <h3>4. Is resume done by LangGraph's checkpointer, by Postgres, or both?</h3>
+    <p><b>Both, with different jobs, plus two small pieces of our own code.</b></p>
+    <ul>
+      <li><b>The checkpointer is the logic.</b> It's part of LangGraph. After every step it takes a snapshot of the state (plus which steps are still due), labelled with the incident's thread id. When you resume, it loads the latest snapshot and carries on from the next step. It also stores results that finished in the middle of a step: if three investigators run in parallel and one fails, the two that finished are kept and not re-run.</li>
+      <li><b>Postgres is where the snapshots are kept.</b> <code>AsyncPostgresSaver</code> is the checkpointer flavour that writes to Postgres tables. With the in-memory flavour, pause and resume still work while the process is alive, but a crash loses everything. Postgres is what makes it survive a crash or a restart. We also use <code>durability="sync"</code>, which means "don't start the next step until the snapshot is safely written".</li>
+      <li><b>Our code adds two things LangGraph doesn't do on its own.</b> (a) Nobody restarts a crashed run automatically: when the API starts, it marks runs that were in progress as <code>interrupted</code>, and someone calls <code>POST /incidents/{id}/resume</code>. (b) LangGraph restarts an unfinished step <em>from its beginning</em>, so a step with side effects must be safe to repeat. That's why the executor checks for an <code>executed</code> audit row before applying a fix.</li>
+    </ul>
+    <div class="plain"><b>Analogy</b>The checkpointer is the habit of saving your game after every level. Postgres is the memory card. Without the card, the save disappears when the console switches off.</div>
+  </div>
+
+  <div class="qa">
+    <h3>5. Is this the same as Temporal?</h3>
+    <p>Same idea, lighter tool. Both give "durable execution": a long process that survives crashes and can wait days for a person. Here are the differences:</p>
+    <div class="tbl">
+      <table>
+        <thead><tr><th></th><th>This project (LangGraph + Postgres)</th><th>Temporal</th></tr></thead>
+        <tbody>
+          <tr><td>What gets saved</td><td>A snapshot of the state after each step</td><td>A log of every event and every activity result; the code is replayed to rebuild state</td></tr>
+          <tr><td>Crash in the middle of a step</td><td>That step runs again from its start</td><td>Finished activities aren't re-run; the one in progress is retried</td></tr>
+          <tr><td>Who notices the crash</td><td>Nobody automatically; we mark runs interrupted on startup and call resume</td><td>The Temporal server notices the worker died and gives the work to another worker</td></tr>
+          <tr><td>Waiting for a person</td><td><code>interrupt()</code> then <code>Command(resume=…)</code></td><td>Signals and updates</td></tr>
+          <tr><td>Waiting for time ("check again in 2 hours")</td><td>No built-in timer that survives a restart; our verify loop just sleeps inside a step</td><td>Durable timers: a sleep of days survives restarts</td></tr>
+          <tr><td>Rules for your code</td><td>None special; ordinary Python, AI calls anywhere</td><td>Workflow code must be deterministic: no direct network calls, random numbers or clock reads (those go in activities)</td></tr>
+          <tr><td>Retries</td><td><code>RetryPolicy</code> per step</td><td>Retry policy per activity</td></tr>
+          <tr><td>Going back in time</td><td>List every snapshot, replay one, or fork from it with edited state</td><td>Full event history; reset a workflow to an earlier point</td></tr>
+          <tr><td>Changing code while runs are paused</td><td>No formal versioning; you must be careful</td><td>Built-in workflow versioning</td></tr>
+          <tr><td>What you operate</td><td>A library and some Postgres tables</td><td>A Temporal cluster (server plus its database) and workers</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><b>In short:</b> we built Temporal-style durability for an AI agent, saved after every step, with a manual restart. For one API process that's enough, and it was tested by killing a run after diagnosis and resuming it without repeating triage. With many machines and automatic restarts there are two usual options: LangGraph's hosted platform, which adds a run queue, or running the LangGraph flow inside a Temporal workflow.</p>
+  </div>
+</section>
+
+<!-- ============================================================ FEATURES -->
+<section id="features">
+  <h2>LangGraph and LangChain features, one by one</h2>
+  <p>First a one-line summary of each, then a closer look at each feature with where it lives in the code. Code snippets are shortened from the real files.</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Feature</th><th>In plain words</th><th>Where we use it</th></tr></thead>
+      <tbody>
+        <tr><td>StateGraph + reducers</td><td>The flowchart plus its shared notebook. A reducer says how to combine two writes to the same field (append instead of overwrite).</td><td>Agents' chat history; merging the parallel verdicts</td></tr>
+        <tr><td>Subgraphs</td><td>A small flowchart used as one box. Its internal chat stays private; only its final form goes back to the main notebook.</td><td>triage, diagnosis, investigator, remediation</td></tr>
+        <tr><td><code>Command(goto)</code></td><td>A step says which step runs next.</td><td>supervisor, approval_gate</td></tr>
+        <tr><td><code>Send</code></td><td>Start several copies of a step at once, each with its own input.</td><td>One investigator per suspected cause</td></tr>
+        <tr><td><code>interrupt()</code> / <code>Command(resume)</code></td><td>Pause and wait for a person, then continue, possibly hours later from another request.</td><td>approval_gate</td></tr>
+        <tr><td>Checkpointer (Postgres)</td><td>Save point after every step.</td><td>Every run; required for the pause</td></tr>
+        <tr><td>State history / time travel</td><td>Look at any old save point, replay from it, or branch off with edited data.</td><td><code>scripts/history.py</code>, Checkpoints tab in the UI</td></tr>
+        <tr><td><code>RetryPolicy</code></td><td>Try again automatically after a temporary failure, waiting a bit longer each time.</td><td>Tools and change steps (4 tries), AI steps (3 tries)</td></tr>
+        <tr><td>Streaming</td><td>Send progress to the browser while the run is still going.</td><td>The live timeline in the UI</td></tr>
+        <tr><td>Store</td><td>Long-term memory that outlives a single incident, kept separate per company.</td><td>Past incidents (recall, finalize), runbooks (remediation)</td></tr>
+        <tr><td>Runtime context</td><td>Things handed to every step by our code, not stored in the notebook and never shown to the AI.</td><td>The user's identity and token, the tool backend, the audit log, the risk rules</td></tr>
+        <tr><td>Structured output</td><td>Make the AI fill in a typed form.</td><td>Every conclude step</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="qa" id="runtime-context">
+    <h3>Runtime context: the feature that keeps identity away from the AI</h3>
+    <p>LangGraph gives every step two kinds of input. <b>State</b> is the shared notebook the steps fill in. <b>Runtime context</b> is what our code hands to every step for <em>this run only</em>.</p>
+    <div class="tbl">
+      <table style="min-width:560px">
+        <thead><tr><th></th><th>State</th><th>Runtime context</th></tr></thead>
+        <tbody>
+          <tr><td>What it holds here</td><td><code>IncidentState</code>: alert, triage, diagnosis, proposal, approval…</td><td><code>CopilotContext</code>: the acting user (with token), tool backend, audit store, risk policy</td></tr>
+          <tr><td>Saved in checkpoints?</td><td>Yes, after every step</td><td><b>Never</b></td></tr>
+          <tr><td>Seen by the AI?</td><td>Parts go into prompts</td><td>No</td></tr>
+          <tr><td>Can steps change it?</td><td>Yes, that's how results are handed on</td><td>No, read-only</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="plain"><b>Analogy</b>State is the patient's chart: written in, saved, handed from shift to shift. The runtime context is the badge and keys the current staff member carries. They aren't written in the chart, and each new shift brings its own.</div>
+<pre><span class="c"># 1. declare it (graph/build.py)</span>
+builder = StateGraph(IncidentState, context_schema=CopilotContext)
+
+<span class="c"># 2. pass a fresh one on every run (runner.py)</span>
+graph.astream(inputs, config, context=CopilotContext(actor=alice, backend=..., audit=..., risk_policy=...))
+
+<span class="c"># 3. steps read it (graph/gate.py)</span>
+async def execute_action(state, config, runtime: Runtime[CopilotContext]):
+    ctx = runtime.context
+    await ctx.backend.apply_action(action, ctx.actor)
+
+<span class="c"># 4. tools read it; LangChain hides `runtime` from the AI's view of the tool (tools/read_tools.py)</span>
+@tool
+async def list_pods(namespace: str, runtime: ToolRuntime[Any], deployment: str | None = None) -> str:
+    ... runtime.context.backend.list_pods(namespace, deployment) ...</pre>
+    <ul>
+      <li><b>The AI can't fake an identity.</b> It can only fill in tool parameters like <code>namespace</code>. Who the call runs as comes from the context, which it never sees.</li>
+      <li><b>The token is never saved.</b> Checkpoints hold only state, and LangSmith records state as a run's inputs, so the token appears in neither.</li>
+      <li><b>This is how bob executes alice's incident.</b> On resume the API passes a <em>new</em> context with bob as the actor. The state (the incident) stays the same, but the identity changes. Investigation ran as alice, and the fix runs as bob.</li>
+    </ul>
+  </div>
+
+  <div class="two">
+    <div class="card">
+      <h3>StateGraph, nodes and edges</h3>
+      <p>A flowchart where each box (node) is an ordinary async Python function and arrows (edges) say what runs next. A node returns only the fields it changed, and LangGraph merges them into the state.</p>
+      <p class="here"><b>Here:</b> 9 nodes in <code>graph/build.py</code>; fixed edges such as <code>verify → finalize</code>.</p>
+<pre>builder.add_node("verify", make_verify(settings), retry_policy=TOOL_RETRY)
+builder.add_edge("verify", "finalize")
+builder.add_edge("finalize", END)</pre>
+    </div>
+
+    <div class="card">
+      <h3>Reducers</h3>
+      <p>They say how to combine two writes to the same field. The default is "replace". <code>add_messages</code> appends chat messages, and <code>operator.add</code> appends to a list.</p>
+      <p class="here"><b>Here:</b> three investigators each return <code>{"verdicts": [one]}</code> at the same time, and the reducer keeps all three (<code>graph/state.py</code>).</p>
+<pre>verdicts: Annotated[list[dict], operator.add]
+messages: Annotated[list[AnyMessage], add_messages]</pre>
+    </div>
+
+    <div class="card">
+      <h3>Subgraphs with input/output schemas</h3>
+      <p>A compiled graph used as one node. The input schema limits what it reads from the parent, and the output schema limits what it hands back. Its chat history stays inside.</p>
+      <p class="here"><b>Analogy:</b> a contractor gets a brief and returns a report, and keeps their scratch notes. <b>Here:</b> triage, diagnosis, investigator and remediation (<code>graph/agents.py</code>).</p>
+<pre>StateGraph(DiagnosisState, input_schema=DiagnosisInput,
+           output_schema=DiagnosisOutput)
+builder.add_node("diagnosis", build_diagnosis(models, settings))</pre>
+    </div>
+
+    <div class="card">
+      <h3><code>Command(goto)</code> and <code>destinations</code></h3>
+      <p>A node returns "go to X next", and can update the state at the same time. <code>destinations</code> lists the possible targets, so the graph can still be drawn and checked.</p>
+      <p class="here"><b>Here:</b> the supervisor and the approval gate (<code>graph/supervisor.py</code>, <code>graph/gate.py</code>).</p>
+<pre>return Command(goto="execute_action",
+               update={"approval": approval})
+builder.add_node("supervisor", supervisor,
+    destinations=("triage", "diagnosis", "remediation",
+                  "approval_gate", "finalize"))</pre>
+    </div>
+
+    <div class="card">
+      <h3>Conditional edges</h3>
+      <p>A small function looks at the state and picks the next node.</p>
+      <p class="here"><b>Here:</b> after the change runs, go to <code>verify</code> if it executed, otherwise to <code>finalize</code>.</p>
+<pre>def after_execute(state):
+    return "verify" if state["execution"]["status"] == "executed" else "finalize"
+builder.add_conditional_edges("execute_action", after_execute, ...)</pre>
+    </div>
+
+    <div class="card">
+      <h3><code>Send</code>: run copies in parallel</h3>
+      <p>Starts several copies of one node in the same step, each with its own input.</p>
+      <p class="here"><b>Here:</b> one investigator per suspected cause (<code>graph/agents.py</code>).</p>
+<pre>def fan_out(state):
+    return [Send("investigate", {"alert": ..., "hypothesis": h})
+            for h in state["hypotheses"]]
+builder.add_conditional_edges("propose", fan_out, ["investigate"])</pre>
+    </div>
+
+    <div class="card">
+      <h3><code>interrupt()</code> and <code>Command(resume)</code></h3>
+      <p><code>interrupt(payload)</code> pauses the run and saves everything. Later, any process continues it with <code>Command(resume=value)</code>, and <code>interrupt()</code> returns that value inside the node.</p>
+      <p class="here"><b>Here:</b> the approval gate pauses with the action and its fingerprint, and the API resumes with bob's decision. <b>Worth knowing:</b> the paused node re-runs from its start on resume, so everything before <code>interrupt()</code> must be safe to repeat.</p>
+<pre>decision = interrupt({"type": "approval_request",
+                      "action": payload, "action_hash": digest})
+<span class="c"># API, later:</span>
+graph.astream(Command(resume={"decision": "approve", ...}), config)</pre>
+    </div>
+
+    <div class="card">
+      <h3>Checkpointer and <code>thread_id</code></h3>
+      <p>Saves a snapshot after every step under a <code>thread_id</code> (one per incident). It's required for <code>interrupt</code>, and it gives crash recovery. <code>durability="sync"</code> waits for each save before the next step starts.</p>
+      <p class="here"><b>Here:</b> <code>AsyncPostgresSaver</code> (<code>db.py</code>); a run killed after diagnosis resumes without repeating triage.</p>
+<pre>config = {"configurable": {"thread_id": "inc-1e95..."}}
+graph.astream(inputs, config, durability="sync", ...)</pre>
+    </div>
+
+    <div class="card">
+      <h3>State history and time travel</h3>
+      <p>List every snapshot of a thread, re-run from an old one, or change one and branch off a new path.</p>
+      <p class="here"><b>Here:</b> <code>scripts/history.py</code> (<code>--replay</code>, <code>--fork</code>) and the Checkpoints tab. Good for asking "what if diagnosis had said X?"</p>
+<pre>async for snap in graph.aget_state_history(config): ...
+config = await graph.aupdate_state(config, update, as_node="triage")</pre>
+    </div>
+
+    <div class="card">
+      <h3><code>RetryPolicy</code></h3>
+      <p>Retries a node automatically on chosen errors, waiting longer each time.</p>
+      <p class="here"><b>Here:</b> tools, the executor and verify retry up to 4 times, only on <code>TransientBackendError</code>. AI steps retry 3 times on API errors or a badly filled form. Errors like "forbidden" go back to the AI instead (<code>graph/common.py</code>).</p>
+<pre>TOOL_RETRY = RetryPolicy(max_attempts=4, initial_interval=0.2,
+                         backoff_factor=2.0, retry_on=TransientBackendError)</pre>
+    </div>
+
+    <div class="card">
+      <h3>Streaming</h3>
+      <p><code>updates</code>: what each node changed. <code>messages</code>: AI tokens as they arrive. <code>custom</code>: our own events, sent from inside nodes. <code>subgraphs=True</code>: also include events from inside subgraphs.</p>
+      <p class="here"><b>Here:</b> it feeds the live timeline in the UI over SSE (<code>runner.py</code>).</p>
+<pre>graph.astream(..., stream_mode=["custom", "updates", "messages"],
+              subgraphs=True)
+runtime.stream_writer({"type": "route", "to": goto, "reason": reason})</pre>
+    </div>
+
+    <div class="card">
+      <h3>Store: long-term memory</h3>
+      <p>Memory that outlives one incident, organized by namespace.</p>
+      <p class="here"><b>Here:</b> past incidents and runbooks, with a separate namespace per company so acme and globex never mix (<code>memory/store.py</code>).</p>
+<pre>await store.asearch(("tenants", t, "incidents"), filter={"service": svc})
+await store.aput(("tenants", t, "incidents"), thread_id, record)
+await store.aget(("tenants", t, "runbooks"), category)</pre>
+    </div>
+
+    <div class="card">
+      <h3><code>ToolNode</code> with <code>awrap_tool_call</code></h3>
+      <p>LangGraph's ready-made node that runs the tools the AI asked for. The wrapper runs around every tool call.</p>
+      <p class="here"><b>Here:</b> the wrapper records each call (used by the trajectory evals) and streams the result to the UI (<code>graph/common.py</code>).</p>
+<pre>ToolNode(list(tools), awrap_tool_call=record_and_emit)</pre>
+    </div>
+
+    <div class="card">
+      <h3><code>recursion_limit</code> and <code>get_graph()</code></h3>
+      <p><code>recursion_limit</code> caps the total steps per run as a guard against endless loops (80 here). <code>get_graph(xray=2)</code> draws the compiled graph including subgraphs, which is where the drawing at the bottom of this page came from.</p>
+<pre>config = {"configurable": {...}, "recursion_limit": 80}
+graph.get_graph(xray=2).draw_mermaid()</pre>
+    </div>
+  </div>
+
+  <h3>LangChain pieces underneath</h3>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Piece</th><th>What it does</th><th>Where we use it</th></tr></thead>
+      <tbody>
+        <tr><td><code>init_chat_model</code></td><td>Creates a chat model from a provider name and model name</td><td><code>config.py</code>: DeepSeek or Gemini picked by a setting; created twice, thinking on (agents) and off (forms)</td></tr>
+        <tr><td><code>with_structured_output(method="function_calling")</code></td><td>Makes the model fill in a Pydantic form by calling it as a forced tool</td><td>Every conclude step, propose, and the diagnosis conclusion</td></tr>
+        <tr><td><code>@tool</code> + <code>ToolRuntime</code></td><td>Turns a function into a tool. The <code>runtime</code> parameter is filled in by the framework and hidden from the model</td><td>The 6 look tools in <code>tools/read_tools.py</code></td></tr>
+        <tr><td><code>bind_tools</code></td><td>Tells the model which tools it may call</td><td>The agent step of each agent</td></tr>
+        <tr><td>Messages (<code>SystemMessage</code>, <code>HumanMessage</code>, <code>ToolMessage</code>)</td><td>The standard conversation format</td><td>Prompts and tool results in every agent</td></tr>
+        <tr><td><code>BaseCallbackHandler</code></td><td>Hooks that fire when a step, AI call or tool starts and ends</td><td><code>GraphTracer</code>: turns them into OpenTelemetry spans</td></tr>
+        <tr><td><code>MultiServerMCPClient</code> (langchain-mcp-adapters)</td><td>Connects to MCP servers and exposes their tools as LangChain tools</td><td><code>tools/mcp_backend.py</code>: forwards the user's token on every call</td></tr>
+        <tr><td>LangSmith <code>tracing_context</code> + anonymizer</td><td>Routes LangChain's run recording through a client that masks data first</td><td><code>langsmith_masking()</code> in every run</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============================================================ TRACING -->
+<section id="tracing">
+  <h2>Tracing</h2>
+  <p>Every run produces a timeline you can open in Jaeger: each step, each AI call (with how many tokens it used), each tool call, and the request into the tool server and on to Kubernetes, all in one tree. Emails, tokens and password-like values are masked before anything leaves the process. The audit log stores the trace id, so from "bob approved this" you can jump to the exact timeline.</p>
+<pre class="tree"><span class="k">POST /api/incidents/{id}/approvals</span>            <span class="c">bob clicks Approve</span>
+└─ <span class="n">incident.run</span>                                <span class="c">company · user · incident id</span>
+   ├─ <span class="n">graph.node approval_gate</span>
+   ├─ <span class="n">graph.node execute_action</span>
+   │  └─ tools/call rollback_deployment
+   │     ├─ POST /mcp  ×6                          <span class="c">connecting to the tool server</span>
+   │     └─ POST /mcp
+   │        └─ <span class="k">mcp-k8s-write: mcp.tool rollback_deployment</span>   <span class="c">acting as kc:bob</span>
+   │           ├─ GET  deployment
+   │           └─ PATCH deployment                  <span class="c">the actual change</span>
+   ├─ <span class="n">graph.node verify</span>  →  tools/call list_pods  <span class="c">(repeated until stable)</span>
+   └─ <span class="n">graph.node finalize</span>
+      └─ <span class="m">llm deepseek-flash</span>                     <span class="c">tokens in / out</span></pre>
+</section>
+
+<!-- ============================================================ MASKING -->
+<section id="masking">
+  <h2>Masking: what leaves the system, and how it's cleaned</h2>
+  <p>Data leaves our process in four directions: trace timelines to <b>Jaeger</b>, AI run recordings to <b>LangSmith</b>, prompts to the AI model (<b>DeepSeek</b>), and everything we save in <b>Postgres</b>. Each gets different treatment, so first, why there are two trace viewers at all.</p>
+
+  <div class="tbl">
+    <table>
+      <thead><tr><th></th><th>Jaeger</th><th>LangSmith</th></tr></thead>
+      <tbody>
+        <tr><td>Answers</td><td>Where did the request go, and how long did each part take?</td><td>What did the AI see and say?</td></tr>
+        <tr><td>Shows</td><td>Timeline across services: API → steps → tool server → Kubernetes call</td><td>Full prompts, messages, tool inputs and outputs, token counts</td></tr>
+        <tr><td>Reach</td><td>Every service that sends OpenTelemetry, including the tool servers in the cluster</td><td>Only the LangChain/LangGraph part inside the API</td></tr>
+        <tr><td>Kind</td><td>Open source, runs locally in one container</td><td>Hosted product, optional (<code>LANGSMITH_TRACING=false</code> turns it off)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="plain"><b>Analogy</b>Jaeger is the parcel-tracking map: every stop and how long each leg took. LangSmith is the recording of the phone call: exactly what was said. They aren't the same tool, and one being open source isn't the difference. If you want both views fully open source, Langfuse or Arize Phoenix can replace LangSmith.</div>
+
+  <h3>The cleaning rules</h3>
+  <p>There is one list of four patterns, <code>_PATTERNS</code> in <code>observability/tracing.py</code>, and one function, <code>redact()</code>, that applies them to text. Both trace destinations use the same list, so a rule added once applies everywhere.</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>What it catches</th><th>Example in</th><th>Example out</th></tr></thead>
+      <tbody>
+        <tr><td>Login tokens (JWTs)</td><td><code>eyJhbGciOi….eyJzdWIi….c2lnbmF0…</code></td><td><code>&lt;jwt&gt;</code></td></tr>
+        <tr><td>Bearer headers</td><td><code>Authorization: Bearer abc123…</code></td><td><code>Authorization: Bearer &lt;token&gt;</code></td></tr>
+        <tr><td>Email addresses</td><td><code>mail bob@acme.example</code></td><td><code>mail &lt;email&gt;</code></td></tr>
+        <tr><td>Any "password / secret / api key" setting</td><td><code>DB_PASSWORD=hunter2</code>, <code>client_secret: abc</code></td><td><code>DB_PASSWORD=&lt;redacted&gt;</code> (Jaeger) · <code>&lt;redacted&gt;</code> (LangSmith)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>How each destination is protected</h3>
+  <div class="two">
+    <div class="card">
+      <h3>Jaeger: cleaned at the exit door</h3>
+      <p>All spans leave the API through one exporter. We wrap it in <code>RedactingExporter</code>. Finished spans are read-only, so for each span it hands the real exporter a cleaned copy, with every attribute and event value passed through <code>redact()</code>.</p>
+      <p>Cleaning at the exit means nothing can slip past. That includes spans we didn't write ourselves, such as FastAPI's request spans and httpx's outgoing-call spans, which can carry URLs and headers.</p>
+      <p>On top of that, our spans carry very little: step names, timings, tool names, a 500-character preview of tool arguments (cleaned again when the span is created), and token <em>counts</em>. No prompt text and no tool results are ever put on a Jaeger span. The user is tagged by their Keycloak id (a random UUID), never their username or email.</p>
+    </div>
+    <div class="card">
+      <h3>LangSmith: cleaned before upload</h3>
+      <p>LangSmith records full prompts and tool results, so cleaning matters more here. Every run starts inside <code>langsmith_masking()</code> (in <code>runner.py</code>). It swaps in a LangSmith client built with an <em>anonymizer</em> made from the same four patterns. The client runs every string in the inputs and outputs through it, including nested values, before anything is uploaded.</p>
+      <p>LangSmith's rules take a plain replacement text, so the "password=…" rule replaces the whole match with <code>&lt;redacted&gt;</code> (the setting's name is masked too).</p>
+      <p><b>Checked on 2026-11-22:</b> LangChain's tracer uses this masked client, and the client masks a sample with an email, a bearer token, a JWT and <code>DB_PASSWORD=…</code> in nested inputs and outputs. Not yet checked by opening a real run in the LangSmith web UI.</p>
+    </div>
+  </div>
+  <div class="plain"><b>Analogy</b>It's like a mailroom that blacks out sensitive lines on every letter as it leaves the building, rather than trusting each writer to remember. Writers are also asked to keep letters short in the first place.</div>
+
+  <h3>Protection at the source</h3>
+  <ul>
+    <li><b>Secret settings never leave Kubernetes.</b> When a tool describes a pod, settings that come from a Kubernetes Secret or ConfigMap are shown as <code>&lt;from secret/configmap&gt;</code>. The AI, the traces and LangSmith never see those values at all (<code>mcp_servers/k8s_format.py</code>).</li>
+    <li><b>The login token is never stored or printed.</b> It travels in LangGraph's runtime context, not in the state, so it's never written to a checkpoint or included in a run's recorded inputs. On the <code>Actor</code> object it's marked <code>repr=False</code>, so it doesn't show up when the object is printed or logged.</li>
+    <li><b>Secrets stay out of git.</b> API keys live in <code>.env</code>, which is in <code>.gitignore</code>. <code>.env.example</code> has empty values.</li>
+    <li><b>Tests cover it:</b> <code>test_exporter_masks_pii</code> and <code>test_redact_jwt_and_secrets</code> in <code>tests/unit/test_tracing.py</code>.</li>
+  </ul>
+
+  <h3>What is <em>not</em> masked</h3>
+  <ul>
+    <li><b>What the AI model receives.</b> Prompts sent to DeepSeek include raw tool results: pod logs, events, and settings written directly into a deployment (not via a Secret). If an app logs a password, the model sees it. Masking is only applied to the trace viewers. Cleaning tool results before they reach the model would close this, at some risk of hiding clues the diagnosis needs.</li>
+    <li><b>The tool servers' own spans.</b> The MCP servers send spans to Jaeger directly, without the redacting exporter. They contain no prompts or results, but they do carry the impersonated user (<code>kc:alice</code>). With demo users that's a plain name. If usernames were email addresses, they would reach Jaeger unmasked.</li>
+    <li><b>Patterns only catch known shapes.</b> Names, phone numbers, IP addresses or a custom token format aren't caught. Regex masking lowers risk; it doesn't guarantee privacy.</li>
+    <li><b>Our own database.</b> Checkpoints and the audit log store results and action details as they are. That's our own storage, protected by database permissions rather than masking. A <code>set_env</code> action that sets a secret value would be stored in plain text there.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ EVALS -->
+<section id="evals">
+  <h2>Testing</h2>
+  <p>Two kinds of tests, kept apart on purpose. The safety parts (approval, roles, audit) get normal tests that must pass every time, because "usually blocks an unapproved change" isn't good enough. The AI's judgement gets evals that run each scenario several times, because one run tells you little.</p>
+  <div class="two">
+    <div class="card">
+      <h3>109 normal tests</h3>
+      <p>They use a scripted fake AI and need no API key. They cover the approval gate (wrong fingerprint, missing audit row, double approval, no double execution after a replay), roles and companies, token checks, a tampered audit chain, database permissions, resume after a crash, the tool servers' identity rules, the "healthy for 45 s" rule, and masking in traces.</p>
+    </div>
+    <div class="card">
+      <h3>Evals: 6 fake incidents × 3 runs</h3>
+      <p>Real AI with recorded tool answers. Each run is graded on the cause category, the proposed fix (right action, right app), whether the fix worked, and the path taken: required tools used, within the tool-call budget, nothing executed without an approval row.</p>
+    </div>
+  </div>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Scenario (fake data, deepseek-flash, 2026-11-21)</th><th>Pass</th><th>Median tool calls</th><th>Median seconds</th></tr></thead>
+      <tbody>
+        <tr><td>oomkilled_loop</td><td class="num">3/3</td><td class="num">32</td><td class="num">69.2</td></tr>
+        <tr><td>high_5xx_latency</td><td class="num">3/3</td><td class="num">45</td><td class="num">72.3</td></tr>
+        <tr><td>db_unreachable</td><td class="num">3/3</td><td class="num">37</td><td class="num">55.0</td></tr>
+        <tr><td>bad_env_var</td><td class="num">3/3</td><td class="num">31</td><td class="num">54.7</td></tr>
+        <tr><td>bad_image_tag</td><td class="num">3/3</td><td class="num">33</td><td class="num">85.3</td></tr>
+        <tr><td>false_alarm_memory</td><td class="num">3/3</td><td class="num">7</td><td class="num">17.9</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>18 runs on incidents with clear clues show that everything works end to end. They don't show that the copilot is reliable on messy real incidents. On the real cluster, single runs: the checkout-api memory crash was fixed with a rollback in 2 min 22 s, and the notification-svc bad <code>SMTP_PORT</code> with <code>set_env</code> in 2 min 00 s, both carried out as bob. One live investigation made 23 AI calls with 86,857 tokens in and 15,168 out.</p>
+</section>
+
+<!-- ============================================================ DECISIONS -->
+<section id="decisions">
+  <h2>Decisions and why</h2>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Decision</th><th>Why</th><th>What we didn't do</th></tr></thead>
+      <tbody>
+        <tr><td>Supervisor is fixed rules</td><td>The AI already fills in the facts. Routing on them is predictable, free and easy to test.</td><td>An AI supervisor choosing the next agent.</td></tr>
+        <tr><td>The AI can only suggest changes</td><td>Changes are written on a typed form and carried out by one step after the approval gate, so nothing can skip the gate.</td><td>Giving the AI change tools and checking each call.</td></tr>
+        <tr><td>Code decides what needs a human</td><td>Same answer every time, can't be talked out of it by text in a log, and adjustable in settings.</td><td>Asking the AI whether its own fix is risky.</td></tr>
+        <tr><td>Approval tied to a fingerprint</td><td>Bob approves exactly what he saw. It's checked in three places.</td><td>"Approve this incident" in general, which would allow a different action afterwards.</td></tr>
+        <tr><td>Permission checks before the flow</td><td>Plain Python in the API, so a rejected request never touches the saved state.</td><td>Checking roles inside the flow's steps.</td></tr>
+        <tr><td>Kubernetes "act as" (impersonation)</td><td>Kubernetes enforces what the human may do, and its log names the human.</td><td>Tool servers with an admin password; Kubernetes TokenRequest (it can only create tokens for service accounts, not for people).</td></tr>
+        <tr><td>Separate look and change servers</td><td>Different accounts with different rights. The look server can't make changes even if something goes wrong.</td><td>One server with all tools.</td></tr>
+        <tr><td>Fixed list of metric queries</td><td>Prometheus doesn't separate companies, and free-form queries from an AI are risky and can be expensive.</td><td>Letting the AI write queries.</td></tr>
+        <tr><td>Thinking on in loops, off for forms</td><td>Thinking helps investigations. DeepSeek refuses forced form-filling while thinking.</td><td>One model setting everywhere.</td></tr>
+        <tr><td>Wait 45 s before saying "fixed"</td><td>A crashing app can look fine for a few seconds after a restart.</td><td>One health check right after the change.</td></tr>
+        <tr><td>Postgres for everything</td><td>Save points, memory, audit and ownership in one reliable place, with database-level protection for the audit log.</td><td>Redis for save points plus a separate audit store.</td></tr>
+        <tr><td>Fake-data mode behind one interface</td><td>Tests and evals run without a cluster. Live mode swaps in the tool servers and the flow doesn't change.</td><td>Faking HTTP responses.</td></tr>
+        <tr><td>Our own trace builder</td><td>One timeline from the click through the AI steps into the tool server and Kubernetes, tagged with user and company.</td><td>LangSmith only, which can't follow the request into the cluster.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============================================================ LIMITS -->
+<section id="limits">
+  <h2>Shortcuts that would change in production</h2>
+  <ul>
+    <li><b>The same token goes all the way to the tool servers.</b> Production would swap it for a narrower token at each hop (OAuth "token exchange", RFC 8693).</li>
+    <li><b>One API process.</b> Runs happen as background tasks inside the API. Several copies of the API would need a shared job queue. The save points already let any copy resume a run.</li>
+    <li><b>Keycloak runs in development mode</b> with demo users and passwords.</li>
+    <li><b>The metrics tool server keeps companies apart.</b> Production would put that rule in a proxy in front of Prometheus, or use a metrics store that supports multiple companies.</li>
+    <li><b>The fake incidents have clear clues.</b> Harder ones (misleading clues, two problems at once) would make the evals more useful.</li>
+    <li><b>Masking covers the trace viewers, not the AI model.</b> Tool results reach DeepSeek as they are, and the MCP servers' spans skip the redacting exporter. See <a href="#masking">Masking</a> for the full list.</li>
+  </ul>
+</section>
+
+<details style="margin-top:44px">
+  <summary>The flow exactly as LangGraph draws it (<code>get_graph(xray=2)</code>)</summary>
+<pre>START → recall → supervisor
+supervisor -.-> triage | diagnosis | remediation | approval_gate | finalize
+triage:      __start__ → agent ⇄ tools ; agent -.-> conclude → supervisor
+diagnosis:   propose -.-> investigate:(__start__ → agent ⇄ tools ; agent -.-> conclude) → conclude → supervisor
+remediation: prepare → agent ⇄ tools ; agent -.-> conclude → supervisor
+approval_gate -.-> execute_action | finalize
+execute_action -.-> verify | finalize
+verify → finalize → END
+tools = list_pods, describe_pod, get_pod_logs, get_events, describe_deployment, query_metrics</pre>
+</details>
+
+<footer>Written from the repository code on 2026-11-22. All numbers are measured results recorded in the README; none are estimates.</footer>
+
+</div>
+</body>
+</html>

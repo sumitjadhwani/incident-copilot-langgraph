@@ -1,0 +1,238 @@
+{
+  "realm": "incident-copilot",
+  "displayName": "Incident Copilot (dev)",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 3600,
+  "roles": {
+    "realm": [
+      {
+        "name": "sre",
+        "description": "Incident responder: may start and view incidents in their tenant"
+      },
+      {
+        "name": "sre-approver",
+        "description": "May approve or reject risky remediation actions in their tenant"
+      }
+    ]
+  },
+  "groups": [
+    {
+      "name": "tenants",
+      "subGroups": [
+        {
+          "name": "acme",
+          "attributes": {
+            "tenant": [
+              "acme"
+            ]
+          }
+        },
+        {
+          "name": "globex",
+          "attributes": {
+            "tenant": [
+              "globex"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "copilot-ui",
+      "name": "Incident Copilot web UI",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:8000"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:8000/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience-copilot-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "copilot-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "audience-copilot-mcp",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "copilot-mcp",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant",
+            "claim.name": "tenant",
+            "jsonType.label": "String",
+            "aggregate.attrs": "true",
+            "multivalued": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "copilot-cli",
+      "name": "Dev-only CLI client (password grant for smoke tests and curl)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "audience-copilot-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "copilot-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "audience-copilot-mcp",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "copilot-mcp",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant",
+            "claim.name": "tenant",
+            "jsonType.label": "String",
+            "aggregate.attrs": "true",
+            "multivalued": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@acme.example",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Responder",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alice",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "sre"
+      ],
+      "groups": [
+        "/tenants/acme"
+      ]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "email": "bob@acme.example",
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Approver",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bob",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "sre",
+        "sre-approver"
+      ],
+      "groups": [
+        "/tenants/acme"
+      ]
+    },
+    {
+      "username": "carol",
+      "enabled": true,
+      "email": "carol@globex.example",
+      "emailVerified": true,
+      "firstName": "Carol",
+      "lastName": "Approver",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "carol",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "sre",
+        "sre-approver"
+      ],
+      "groups": [
+        "/tenants/globex"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+[project]
+name = "incident-copilot"
+version = "0.1.0"
+description = "SRE incident-response copilot built on LangGraph, with an authenticated, audited agent control plane."
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "langgraph>=1.0",
+    "langchain>=1.0",
+    "langchain-core>=1.0",
+    "langchain-deepseek>=1.0",
+    "langchain-google-genai>=3.0",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "python-dotenv>=1.0",
+    "langgraph-checkpoint-postgres>=2.0",
+    "psycopg[binary,pool]>=3.2",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pyjwt[crypto]>=2.9",
+    "httpx>=0.27",
+    "mcp>=1.10",
+    "langchain-mcp-adapters>=0.1",
+    "opentelemetry-sdk>=1.30",
+    "opentelemetry-exporter-otlp-proto-http>=1.30",
+    "opentelemetry-instrumentation-fastapi>=0.51b0",
+    "opentelemetry-instrumentation-httpx>=0.51b0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/copilot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "eval: LLM-backed evaluation scenarios (slow, need an API key)",
+    "db: needs the docker-compose Postgres (skipped when unreachable)",
+]
+addopts = "-m 'not eval'"
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]

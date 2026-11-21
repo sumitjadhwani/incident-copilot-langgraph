@@ -1,0 +1,22 @@
+{
+  "id": "live_bad_config_notification",
+  "mode": "live",
+  "title": "[live] notification-svc crash loop on the kind cluster",
+  "description": "Live alert for the kind demo cluster. Revision 2 of notification-svc sets SMTP_PORT to 'smtp.acme.local:587'.",
+  "alert": {
+    "name": "KubePodCrashLooping",
+    "severity": "warning",
+    "namespace": "acme-prod",
+    "service": "notification-svc",
+    "summary": "Pods of acme-prod/notification-svc are restarting frequently.",
+    "started_at": "now",
+    "labels": {"team": "messaging", "tenant": "acme", "source": "kind"}
+  },
+  "expected": {
+    "root_cause_category": "bad_config",
+    "acceptable_actions": ["set_env", "rollback_deployment"],
+    "action_target": "notification-svc",
+    "required_tools": ["get_pod_logs"],
+    "max_tool_calls": 60
+  }
+}

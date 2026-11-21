@@ -1,0 +1,442 @@
+{
+  "id": "db_unreachable",
+  "title": "catalog-api down because its database was scaled to zero",
+  "description": "During overnight storage maintenance someone scaled the catalog-db deployment to 0 replicas and never scaled it back. catalog-api pods are running but cannot connect to Postgres, fail readiness, and every request returns 503.",
+  "alert": {
+    "name": "KubeDeploymentReplicasMismatch",
+    "severity": "critical",
+    "namespace": "acme-prod",
+    "service": "catalog-api",
+    "summary": "Deployment acme-prod/catalog-api has 0 of 3 replicas ready; catalog-api error rate is 100%.",
+    "started_at": "2026-11-21T03:12:00Z",
+    "labels": {
+      "team": "catalog",
+      "tenant": "acme"
+    }
+  },
+  "expected": {
+    "root_cause_category": "dependency_down",
+    "root_cause_keywords": [
+      "catalog-db",
+      "scaled",
+      "0 replicas",
+      "connection refused"
+    ],
+    "acceptable_actions": [
+      "scale_deployment"
+    ],
+    "action_target": "catalog-db",
+    "required_tools": [
+      "get_pod_logs"
+    ],
+    "max_tool_calls": 60
+  },
+  "remediation": {
+    "fixes": [
+      {
+        "tool": "scale_deployment",
+        "args": {
+          "deployment": "catalog-db",
+          "replicas": {
+            "min_int": 1
+          }
+        }
+      }
+    ],
+    "heals": [
+      "catalog-db",
+      "catalog-api"
+    ]
+  },
+  "namespaces": {
+    "acme-prod": {
+      "deployments": {
+        "catalog-api": {
+          "name": "catalog-api",
+          "replicas": 3,
+          "ready_replicas": 0,
+          "containers": [
+            {
+              "name": "app",
+              "image": "registry.acme.local/catalog-api:7.2.0",
+              "resources": {
+                "requests": {
+                  "cpu": "200m",
+                  "memory": "256Mi"
+                },
+                "limits": {
+                  "cpu": "500m",
+                  "memory": "512Mi"
+                }
+              },
+              "env": {
+                "DB_HOST": "catalog-db.acme-prod.svc.cluster.local",
+                "DB_PORT": "5432",
+                "DB_NAME": "catalog"
+              }
+            }
+          ],
+          "revisions": [
+            {
+              "revision": 58,
+              "image": "registry.acme.local/catalog-api:7.2.0",
+              "change_cause": "search ranking tweak",
+              "created_at": "2026-11-19T13:20:00Z"
+            }
+          ]
+        },
+        "catalog-db": {
+          "name": "catalog-db",
+          "replicas": 0,
+          "ready_replicas": 0,
+          "containers": [
+            {
+              "name": "postgres",
+              "image": "postgres:16.4",
+              "resources": {
+                "requests": {
+                  "cpu": "500m",
+                  "memory": "1Gi"
+                },
+                "limits": {
+                  "cpu": "2",
+                  "memory": "2Gi"
+                }
+              },
+              "env": {
+                "POSTGRES_DB": "catalog",
+                "PGDATA": "/var/lib/postgresql/data/pgdata"
+              }
+            }
+          ],
+          "revisions": [
+            {
+              "revision": 3,
+              "image": "postgres:16.4",
+              "change_cause": "minor version upgrade",
+              "created_at": "2026-10-02T08:00:00Z"
+            }
+          ]
+        }
+      },
+      "pods": [
+        {
+          "name": "catalog-api-7f6e5d4c3-aa111",
+          "deployment": "catalog-api",
+          "phase": "Running",
+          "status": "Running",
+          "restarts": 4,
+          "node": "worker-1",
+          "age": "2d",
+          "containers": [
+            {
+              "name": "app",
+              "state": "Running",
+              "ready": false,
+              "last_state": {
+                "state": "Terminated",
+                "reason": "Error",
+                "exit_code": 1,
+                "finished_at": "2026-11-21T03:41:10Z"
+              }
+            }
+          ],
+          "logs": {
+            "app": {
+              "current": [
+                "2026-11-21T03:41:12Z INFO  starting catalog-api 7.2.0",
+                "2026-11-21T03:41:12Z ERROR db pool init failed: connection to server at \"catalog-db.acme-prod.svc.cluster.local\" (10.96.40.12), port 5432 failed: Connection refused",
+                "2026-11-21T03:41:22Z WARN  readiness: database unavailable, retrying in 10s",
+                "2026-11-21T03:41:32Z ERROR GET /products/123 503 reason=db_unavailable"
+              ],
+              "previous": [
+                "2026-11-21T03:38:02Z INFO  starting catalog-api 7.2.0",
+                "2026-11-21T03:41:09Z FATAL db pool exhausted retries (20/20): Connection refused"
+              ]
+            }
+          }
+        },
+        {
+          "name": "catalog-api-7f6e5d4c3-bb222",
+          "deployment": "catalog-api",
+          "phase": "Running",
+          "status": "Running",
+          "restarts": 4,
+          "node": "worker-2",
+          "age": "2d",
+          "containers": [
+            {
+              "name": "app",
+              "state": "Running",
+              "ready": false,
+              "last_state": {
+                "state": "Terminated",
+                "reason": "Error",
+                "exit_code": 1,
+                "finished_at": "2026-11-21T03:40:55Z"
+              }
+            }
+          ],
+          "logs": {
+            "app": {
+              "current": [
+                "2026-11-21T03:41:30Z ERROR db pool init failed: connection to server at \"catalog-db.acme-prod.svc.cluster.local\" (10.96.40.12), port 5432 failed: Connection refused"
+              ],
+              "previous": []
+            }
+          }
+        },
+        {
+          "name": "catalog-api-7f6e5d4c3-cc333",
+          "deployment": "catalog-api",
+          "phase": "Running",
+          "status": "Running",
+          "restarts": 3,
+          "node": "worker-3",
+          "age": "2d",
+          "containers": [
+            {
+              "name": "app",
+              "state": "Running",
+              "ready": false
+            }
+          ],
+          "logs": {
+            "app": {
+              "current": [
+                "2026-11-21T03:41:40Z WARN  readiness: database unavailable, retrying in 10s"
+              ],
+              "previous": []
+            }
+          }
+        }
+      ],
+      "events": [
+        {
+          "type": "Normal",
+          "reason": "ScalingReplicaSet",
+          "object": "deployment/catalog-db",
+          "message": "Scaled down replica set catalog-db-6f8d9c7b5 from 1 to 0",
+          "count": 1,
+          "last_seen": "2026-11-21T03:10:04Z"
+        },
+        {
+          "type": "Normal",
+          "reason": "Killing",
+          "object": "pod/catalog-db-6f8d9c7b5-zz999",
+          "message": "Stopping container postgres",
+          "count": 1,
+          "last_seen": "2026-11-21T03:10:05Z"
+        },
+        {
+          "type": "Warning",
+          "reason": "Unhealthy",
+          "object": "pod/catalog-api-7f6e5d4c3-aa111",
+          "message": "Readiness probe failed: HTTP probe failed with statuscode: 503",
+          "count": 188,
+          "last_seen": "2026-11-21T03:41:42Z"
+        },
+        {
+          "type": "Warning",
+          "reason": "Unhealthy",
+          "object": "pod/catalog-api-7f6e5d4c3-bb222",
+          "message": "Readiness probe failed: HTTP probe failed with statuscode: 503",
+          "count": 185,
+          "last_seen": "2026-11-21T03:41:40Z"
+        },
+        {
+          "type": "Warning",
+          "reason": "BackOff",
+          "object": "pod/catalog-api-7f6e5d4c3-aa111",
+          "message": "Back-off restarting failed container app",
+          "count": 4,
+          "last_seen": "2026-11-21T03:41:11Z"
+        }
+      ]
+    }
+  },
+  "metrics": {
+    "catalog-api": {
+      "http_5xx_rate": {
+        "unit": "percent",
+        "description": "Share of requests returning 5xx",
+        "points": [
+          [
+            -60,
+            0.1
+          ],
+          [
+            -45,
+            0.1
+          ],
+          [
+            -35,
+            0.1
+          ],
+          [
+            -32,
+            64.0
+          ],
+          [
+            -30,
+            100.0
+          ],
+          [
+            -15,
+            100.0
+          ],
+          [
+            0,
+            100.0
+          ]
+        ]
+      },
+      "http_p99_latency": {
+        "unit": "ms",
+        "description": "p99 request latency",
+        "points": [
+          [
+            -60,
+            95
+          ],
+          [
+            -45,
+            92
+          ],
+          [
+            -35,
+            97
+          ],
+          [
+            -32,
+            30
+          ],
+          [
+            -30,
+            12
+          ],
+          [
+            -15,
+            11
+          ],
+          [
+            0,
+            12
+          ]
+        ]
+      },
+      "restart_count": {
+        "unit": "restarts",
+        "description": "Container restarts across pods",
+        "points": [
+          [
+            -60,
+            0
+          ],
+          [
+            -35,
+            0
+          ],
+          [
+            -20,
+            6
+          ],
+          [
+            -10,
+            9
+          ],
+          [
+            0,
+            11
+          ]
+        ]
+      },
+      "cpu_usage": {
+        "unit": "cores",
+        "description": "Total CPU usage across pods",
+        "points": [
+          [
+            -60,
+            0.05
+          ],
+          [
+            -30,
+            0.04
+          ],
+          [
+            0,
+            0.05
+          ]
+        ]
+      },
+      "memory_usage": {
+        "unit": "MiB",
+        "description": "Max container working-set memory across pods",
+        "points": [
+          [
+            -60,
+            140
+          ],
+          [
+            0,
+            141
+          ]
+        ]
+      }
+    },
+    "catalog-db": {
+      "cpu_usage": {
+        "unit": "cores",
+        "description": "Total CPU usage across pods",
+        "points": [
+          [
+            -60,
+            0.42
+          ],
+          [
+            -45,
+            0.4
+          ],
+          [
+            -35,
+            0.38
+          ],
+          [
+            -32,
+            0.0
+          ],
+          [
+            0,
+            0.0
+          ]
+        ]
+      },
+      "memory_usage": {
+        "unit": "MiB",
+        "description": "Max container working-set memory across pods",
+        "points": [
+          [
+            -60,
+            910
+          ],
+          [
+            -45,
+            905
+          ],
+          [
+            -35,
+            908
+          ],
+          [
+            -32,
+            0
+          ],
+          [
+            0,
+            0
+          ]
+        ]
+      }
+    }
+  }
+}

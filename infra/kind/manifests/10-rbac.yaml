@@ -1,0 +1,99 @@
+# Layer 1: what HUMANS may do. Granted to impersonated groups, per tenant namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: copilot-reader}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: copilot-writer}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: copilot-tenant-readers, namespace: acme-prod}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: copilot-reader}
+subjects: [{apiGroup: rbac.authorization.k8s.io, kind: Group, name: "copilot:tenant:acme"}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: copilot-tenant-approvers, namespace: acme-prod}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: copilot-writer}
+subjects: [{apiGroup: rbac.authorization.k8s.io, kind: Group, name: "copilot:approvers:acme"}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: copilot-tenant-readers, namespace: globex-prod}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: copilot-reader}
+subjects: [{apiGroup: rbac.authorization.k8s.io, kind: Group, name: "copilot:tenant:globex"}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: copilot-tenant-approvers, namespace: globex-prod}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: copilot-writer}
+subjects: [{apiGroup: rbac.authorization.k8s.io, kind: Group, name: "copilot:approvers:globex"}]
+---
+# Layer 2: what the MCP SERVERS may do: impersonate known identities, nothing else.
+# The read server cannot impersonate approver groups, so even a compromised read server cannot write.
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: mcp-k8s-read, namespace: copilot-system}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: mcp-k8s-write, namespace: copilot-system}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: mcp-observability, namespace: copilot-system}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: mcp-impersonate-readers}
+rules:
+  - apiGroups: [""]
+    resources: ["users"]
+    verbs: ["impersonate"]
+    resourceNames: ["kc:alice", "kc:bob", "kc:carol"]
+  - apiGroups: [""]
+    resources: ["groups"]
+    verbs: ["impersonate"]
+    resourceNames: ["copilot:tenant:acme", "copilot:tenant:globex"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: mcp-impersonate-approvers}
+rules:
+  - apiGroups: [""]
+    resources: ["users"]
+    verbs: ["impersonate"]
+    resourceNames: ["kc:alice", "kc:bob", "kc:carol"]
+  - apiGroups: [""]
+    resources: ["groups"]
+    verbs: ["impersonate"]
+    resourceNames: ["copilot:tenant:acme", "copilot:tenant:globex", "copilot:approvers:acme", "copilot:approvers:globex"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: mcp-k8s-read-impersonate}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: mcp-impersonate-readers}
+subjects: [{kind: ServiceAccount, name: mcp-k8s-read, namespace: copilot-system}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: mcp-k8s-write-impersonate}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: mcp-impersonate-approvers}
+subjects: [{kind: ServiceAccount, name: mcp-k8s-write, namespace: copilot-system}]

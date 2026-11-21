@@ -1,0 +1,79 @@
+{
+  "id": "bad_image_tag",
+  "title": "search-api rollout stuck on a missing image tag",
+  "description": "Revision 23 points search-api at registry.acme.local/search-api:3.1.0-rc1, a tag that was never pushed. The new pod is in ImagePullBackOff; the rollout is stuck with two old pods (3.0.4) still serving at reduced capacity.",
+  "alert": {
+    "name": "KubeDeploymentRolloutStuck",
+    "severity": "warning",
+    "namespace": "acme-prod",
+    "service": "search-api",
+    "summary": "Rollout of deployment acme-prod/search-api is not progressing (2 of 3 replicas available for 25 minutes).",
+    "started_at": "2026-11-21T13:20:00Z",
+    "labels": {"team": "search", "tenant": "acme"}
+  },
+  "expected": {
+    "root_cause_category": "bad_image",
+    "root_cause_keywords": ["3.1.0-rc1", "ImagePullBackOff", "manifest unknown"],
+    "acceptable_actions": ["rollback_deployment"],
+    "action_target": "search-api",
+    "required_tools": ["get_events"],
+    "max_tool_calls": 60
+  },
+  "remediation": {
+    "fixes": [
+      {"tool": "rollback_deployment", "args": {"deployment": "search-api", "to_revision": 22}}
+    ],
+    "heals": ["search-api"]
+  },
+  "namespaces": {
+    "acme-prod": {
+      "deployments": {
+        "search-api": {
+          "name": "search-api",
+          "replicas": 3,
+          "ready_replicas": 2,
+          "containers": [
+            {
+              "name": "app",
+              "image": "registry.acme.local/search-api:3.1.0-rc1",
+              "resources": {"requests": {"cpu": "300m", "memory": "512Mi"}, "limits": {"cpu": "1", "memory": "1Gi"}},
+              "env": {"INDEX_URL": "http://opensearch.acme-prod.svc:9200", "LOG_LEVEL": "info"}
+            }
+          ],
+          "revisions": [
+            {"revision": 22, "image": "registry.acme.local/search-api:3.0.4", "change_cause": "synonym list update", "created_at": "2026-11-15T16:45:00Z"},
+            {"revision": 23, "image": "registry.acme.local/search-api:3.1.0-rc1", "change_cause": "release 3.1.0 (vector search)", "created_at": "2026-11-21T13:18:00Z"}
+          ]
+        }
+      },
+      "pods": [
+        {"name": "search-api-6d5c4b3a2-old01", "deployment": "search-api", "phase": "Running", "status": "Running", "restarts": 0, "node": "worker-1", "age": "6d",
+         "containers": [{"name": "app", "state": "Running", "ready": true}],
+         "logs": {"app": {"current": ["2026-11-21T13:44:10Z INFO  GET /search?q=boots 200 84ms", "2026-11-21T13:44:12Z INFO  GET /search?q=tent 200 91ms"], "previous": []}}},
+        {"name": "search-api-6d5c4b3a2-old02", "deployment": "search-api", "phase": "Running", "status": "Running", "restarts": 0, "node": "worker-3", "age": "6d",
+         "containers": [{"name": "app", "state": "Running", "ready": true}],
+         "logs": {"app": {"current": ["2026-11-21T13:44:11Z INFO  GET /search?q=jacket 200 97ms"], "previous": []}}},
+        {"name": "search-api-7e8f9a0b1-new01", "deployment": "search-api", "phase": "Pending", "status": "ImagePullBackOff", "restarts": 0, "node": "worker-2", "age": "26m",
+         "containers": [{"name": "app", "state": "Waiting (ImagePullBackOff)", "ready": false}],
+         "logs": {"app": {"current": [], "previous": []}}}
+      ],
+      "events": [
+        {"type": "Normal", "reason": "ScalingReplicaSet", "object": "deployment/search-api", "message": "Scaled up replica set search-api-7e8f9a0b1 to 1", "count": 1, "last_seen": "2026-11-21T13:18:04Z"},
+        {"type": "Normal", "reason": "ScalingReplicaSet", "object": "deployment/search-api", "message": "Scaled down replica set search-api-6d5c4b3a2 to 2 from 3", "count": 1, "last_seen": "2026-11-21T13:18:04Z"},
+        {"type": "Warning", "reason": "Failed", "object": "pod/search-api-7e8f9a0b1-new01", "message": "Failed to pull image \"registry.acme.local/search-api:3.1.0-rc1\": rpc error: code = NotFound desc = failed to pull and unpack image: manifest unknown: manifest tagged by \"3.1.0-rc1\" is not found", "count": 9, "last_seen": "2026-11-21T13:43:30Z"},
+        {"type": "Warning", "reason": "Failed", "object": "pod/search-api-7e8f9a0b1-new01", "message": "Error: ErrImagePull", "count": 9, "last_seen": "2026-11-21T13:43:30Z"},
+        {"type": "Normal", "reason": "BackOff", "object": "pod/search-api-7e8f9a0b1-new01", "message": "Back-off pulling image \"registry.acme.local/search-api:3.1.0-rc1\"", "count": 104, "last_seen": "2026-11-21T13:44:05Z"},
+        {"type": "Warning", "reason": "ProgressDeadlineExceeded", "object": "deployment/search-api", "message": "ReplicaSet \"search-api-7e8f9a0b1\" has timed out progressing.", "count": 1, "last_seen": "2026-11-21T13:28:05Z"}
+      ]
+    }
+  },
+  "metrics": {
+    "search-api": {
+      "http_p99_latency": {"unit": "ms", "description": "p99 request latency", "points": [[-60, 140], [-30, 150], [-20, 210], [-10, 230], [0, 235]]},
+      "http_5xx_rate": {"unit": "percent", "description": "Share of requests returning 5xx", "points": [[-60, 0.1], [-30, 0.1], [0, 0.2]]},
+      "cpu_usage": {"unit": "cores", "description": "Total CPU usage across pods", "points": [[-60, 0.9], [-30, 0.92], [-20, 0.95], [0, 0.97]]},
+      "memory_usage": {"unit": "MiB", "description": "Max container working-set memory across pods", "points": [[-60, 610], [0, 618]]},
+      "restart_count": {"unit": "restarts", "description": "Container restarts across pods", "points": [[-60, 0], [0, 0]]}
+    }
+  }
+}

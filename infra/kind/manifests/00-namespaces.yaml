@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata: {name: acme-prod, labels: {copilot/tenant: acme}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: globex-prod, labels: {copilot/tenant: globex}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: copilot-system}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: monitoring}

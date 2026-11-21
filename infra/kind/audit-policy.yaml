@@ -1,0 +1,13 @@
+# API server audit policy: record who did what in the tenant namespaces (including impersonation).
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages: ["RequestReceived"]
+rules:
+  - level: Metadata
+    namespaces: ["acme-prod", "globex-prod"]
+    resources:
+      - group: ""
+        resources: ["pods", "pods/log", "events"]
+      - group: "apps"
+        resources: ["deployments", "replicasets"]
+  - level: None

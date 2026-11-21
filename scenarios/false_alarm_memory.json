@@ -1,0 +1,69 @@
+{
+  "id": "false_alarm_memory",
+  "title": "reports-worker memory warning that is normal behaviour",
+  "description": "reports-worker is a JVM batch worker with a fixed heap (-Xmx768m). Its working set has sat at 82-85% of its 1Gi limit for days, which trips a generic 80% memory alert. There are no restarts, no errors and batches complete normally. Nothing should be changed.",
+  "alert": {
+    "name": "ContainerMemoryHigh",
+    "severity": "warning",
+    "namespace": "acme-prod",
+    "service": "reports-worker",
+    "summary": "Container reports-worker/worker memory working set is at 84% of its limit (860Mi of 1Gi).",
+    "started_at": "2026-11-21T09:00:00Z",
+    "labels": {"team": "analytics", "tenant": "acme"}
+  },
+  "expected": {
+    "root_cause_category": "no_issue",
+    "root_cause_keywords": ["stable", "heap", "no restarts"],
+    "acceptable_actions": [],
+    "action_target": null,
+    "required_tools": ["query_metrics"],
+    "max_tool_calls": 40
+  },
+  "remediation": {"fixes": [], "heals": []},
+  "namespaces": {
+    "acme-prod": {
+      "deployments": {
+        "reports-worker": {
+          "name": "reports-worker",
+          "replicas": 2,
+          "ready_replicas": 2,
+          "containers": [
+            {
+              "name": "worker",
+              "image": "registry.acme.local/reports-worker:5.4.2",
+              "resources": {"requests": {"cpu": "500m", "memory": "1Gi"}, "limits": {"cpu": "1", "memory": "1Gi"}},
+              "env": {"JAVA_OPTS": "-Xms768m -Xmx768m -XX:+UseG1GC", "BATCH_SIZE": "500"}
+            }
+          ],
+          "revisions": [
+            {"revision": 9, "image": "registry.acme.local/reports-worker:5.4.2", "change_cause": "quarterly report template", "created_at": "2026-11-03T11:00:00Z"}
+          ]
+        }
+      },
+      "pods": [
+        {"name": "reports-worker-84b6c5d7e-w1x2y", "deployment": "reports-worker", "phase": "Running", "status": "Running", "restarts": 0, "node": "worker-1", "age": "18d",
+         "containers": [{"name": "worker", "state": "Running", "ready": true}],
+         "logs": {"worker": {"current": [
+           "2026-11-21T09:58:00Z INFO  batch 18823 completed rows=500 duration=41s",
+           "2026-11-21T09:59:00Z INFO  gc G1 Young pause 18ms heap 512M->301M(768M)",
+           "2026-11-21T10:00:00Z INFO  batch 18824 completed rows=500 duration=39s"
+         ], "previous": []}}},
+        {"name": "reports-worker-84b6c5d7e-z3a4b", "deployment": "reports-worker", "phase": "Running", "status": "Running", "restarts": 0, "node": "worker-3", "age": "18d",
+         "containers": [{"name": "worker", "state": "Running", "ready": true}],
+         "logs": {"worker": {"current": [
+           "2026-11-21T09:58:30Z INFO  batch 18822 completed rows=500 duration=43s",
+           "2026-11-21T10:00:30Z INFO  batch 18825 completed rows=500 duration=40s"
+         ], "previous": []}}}
+      ],
+      "events": []
+    }
+  },
+  "metrics": {
+    "reports-worker": {
+      "memory_usage": {"unit": "MiB", "description": "Max container working-set memory across pods (limit 1024Mi)", "points": [[-360, 851], [-300, 858], [-240, 846], [-180, 862], [-120, 855], [-60, 849], [-30, 860], [0, 857]]},
+      "cpu_usage": {"unit": "cores", "description": "Total CPU usage across pods", "points": [[-360, 1.1], [-180, 1.0], [-60, 1.1], [0, 1.05]]},
+      "restart_count": {"unit": "restarts", "description": "Container restarts across pods", "points": [[-360, 0], [0, 0]]},
+      "http_5xx_rate": {"unit": "percent", "description": "Share of failed batch jobs", "points": [[-360, 0.0], [0, 0.0]]}
+    }
+  }
+}

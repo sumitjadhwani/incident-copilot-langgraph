@@ -1,0 +1,129 @@
+{
+  "id": "high_5xx_latency",
+  "title": "orders-api 5xx and latency spike caused by a saturated inventory-api",
+  "description": "A marketing campaign roughly doubled order traffic. orders-api scaled out via HPA, but its dependency inventory-api did not: its two pods are pinned at their 250m CPU limit, requests queue up, readiness probes time out, and orders-api returns 504s after a 2s upstream timeout.",
+  "alert": {
+    "name": "HighErrorRate",
+    "severity": "critical",
+    "namespace": "acme-prod",
+    "service": "orders-api",
+    "summary": "orders-api is returning 5xx for 8.9% of requests (SLO 1%) and p99 latency is 2.4s.",
+    "started_at": "2026-11-21T11:40:00Z",
+    "labels": {"team": "commerce", "tenant": "acme"}
+  },
+  "expected": {
+    "root_cause_category": "cpu_saturation",
+    "root_cause_keywords": ["inventory-api", "CPU", "timeout"],
+    "acceptable_actions": ["scale_deployment", "patch_resources"],
+    "action_target": "inventory-api",
+    "required_tools": ["get_pod_logs", "query_metrics"],
+    "max_tool_calls": 60
+  },
+  "remediation": {
+    "fixes": [
+      {"tool": "scale_deployment", "args": {"deployment": "inventory-api", "replicas": {"min_int": 4}}},
+      {"tool": "patch_resources", "args": {"deployment": "inventory-api", "cpu_limit": {"min_millicores": 500}}}
+    ],
+    "heals": ["inventory-api"]
+  },
+  "namespaces": {
+    "acme-prod": {
+      "deployments": {
+        "orders-api": {
+          "name": "orders-api",
+          "replicas": 6,
+          "ready_replicas": 6,
+          "containers": [
+            {
+              "name": "app",
+              "image": "registry.acme.local/orders-api:4.8.1",
+              "resources": {"requests": {"cpu": "250m", "memory": "256Mi"}, "limits": {"cpu": "1", "memory": "512Mi"}},
+              "env": {"INVENTORY_URL": "http://inventory-api.acme-prod.svc.cluster.local:8080", "UPSTREAM_TIMEOUT_MS": "2000"}
+            }
+          ],
+          "revisions": [
+            {"revision": 31, "image": "registry.acme.local/orders-api:4.8.1", "change_cause": "checkout copy tweaks", "created_at": "2026-11-17T09:12:00Z"}
+          ]
+        },
+        "inventory-api": {
+          "name": "inventory-api",
+          "replicas": 2,
+          "ready_replicas": 1,
+          "containers": [
+            {
+              "name": "app",
+              "image": "registry.acme.local/inventory-api:2.3.0",
+              "resources": {"requests": {"cpu": "200m", "memory": "256Mi"}, "limits": {"cpu": "250m", "memory": "512Mi"}},
+              "env": {"DB_HOST": "inventory-db.acme-prod.svc.cluster.local", "WORKERS": "4"}
+            }
+          ],
+          "revisions": [
+            {"revision": 14, "image": "registry.acme.local/inventory-api:2.3.0", "change_cause": "add stock reservation endpoint", "created_at": "2026-11-12T15:40:00Z"}
+          ]
+        }
+      },
+      "pods": [
+        {"name": "orders-api-6c9d7b5f4-a1b2c", "deployment": "orders-api", "phase": "Running", "status": "Running", "restarts": 0, "node": "worker-1", "age": "4d",
+         "containers": [{"name": "app", "state": "Running", "ready": true}],
+         "logs": {"app": {"current": [
+           "2026-11-21T11:52:10Z INFO  POST /orders 201 310ms",
+           "2026-11-21T11:52:11Z WARN  upstream inventory-api timeout after 2000ms GET /stock/sku-48812",
+           "2026-11-21T11:52:11Z ERROR POST /orders 504 2004ms reason=inventory_timeout",
+           "2026-11-21T11:52:13Z WARN  upstream inventory-api timeout after 2000ms GET /stock/sku-10233",
+           "2026-11-21T11:52:13Z ERROR POST /orders 504 2003ms reason=inventory_timeout",
+           "2026-11-21T11:52:14Z INFO  POST /orders 201 1870ms"
+         ], "previous": []}}},
+        {"name": "orders-api-6c9d7b5f4-d3e4f", "deployment": "orders-api", "phase": "Running", "status": "Running", "restarts": 0, "node": "worker-2", "age": "4d",
+         "containers": [{"name": "app", "state": "Running", "ready": true}],
+         "logs": {"app": {"current": [
+           "2026-11-21T11:52:20Z WARN  upstream inventory-api timeout after 2000ms GET /stock/sku-77120",
+           "2026-11-21T11:52:20Z ERROR POST /orders 504 2001ms reason=inventory_timeout"
+         ], "previous": []}}},
+        {"name": "orders-api-6c9d7b5f4-g5h6i", "deployment": "orders-api", "phase": "Running", "status": "Running", "restarts": 0, "node": "worker-3", "age": "21m",
+         "containers": [{"name": "app", "state": "Running", "ready": true}], "logs": {"app": {"current": ["2026-11-21T11:52:30Z INFO  POST /orders 201 1650ms"], "previous": []}}},
+        {"name": "orders-api-6c9d7b5f4-j7k8l", "deployment": "orders-api", "phase": "Running", "status": "Running", "restarts": 0, "node": "worker-1", "age": "21m",
+         "containers": [{"name": "app", "state": "Running", "ready": true}], "logs": {"app": {"current": ["2026-11-21T11:52:31Z ERROR POST /orders 504 2002ms reason=inventory_timeout"], "previous": []}}},
+        {"name": "orders-api-6c9d7b5f4-m9n0o", "deployment": "orders-api", "phase": "Running", "status": "Running", "restarts": 0, "node": "worker-2", "age": "21m",
+         "containers": [{"name": "app", "state": "Running", "ready": true}], "logs": {"app": {"current": [], "previous": []}}},
+        {"name": "orders-api-6c9d7b5f4-p1q2r", "deployment": "orders-api", "phase": "Running", "status": "Running", "restarts": 0, "node": "worker-3", "age": "21m",
+         "containers": [{"name": "app", "state": "Running", "ready": true}], "logs": {"app": {"current": [], "previous": []}}},
+        {"name": "inventory-api-5b7c9d8e6-s3t4u", "deployment": "inventory-api", "phase": "Running", "status": "Running", "restarts": 0, "node": "worker-1", "age": "9d",
+         "containers": [{"name": "app", "state": "Running", "ready": true}],
+         "logs": {"app": {"current": [
+           "2026-11-21T11:52:05Z WARN  request queue depth=184 workers=4 busy=4",
+           "2026-11-21T11:52:07Z INFO  GET /stock/sku-48812 200 1912ms",
+           "2026-11-21T11:52:09Z WARN  request queue depth=201 workers=4 busy=4",
+           "2026-11-21T11:52:12Z INFO  GET /stock/sku-10233 200 2240ms"
+         ], "previous": []}}},
+        {"name": "inventory-api-5b7c9d8e6-v5w6x", "deployment": "inventory-api", "phase": "Running", "status": "Running", "restarts": 0, "node": "worker-2", "age": "9d",
+         "containers": [{"name": "app", "state": "Running", "ready": false}],
+         "logs": {"app": {"current": [
+           "2026-11-21T11:52:02Z WARN  request queue depth=233 workers=4 busy=4",
+           "2026-11-21T11:52:08Z WARN  healthz handler took 1450ms (queued behind requests)",
+           "2026-11-21T11:52:15Z INFO  GET /stock/sku-77120 200 2410ms"
+         ], "previous": []}}}
+      ],
+      "events": [
+        {"type": "Normal", "reason": "SuccessfulRescale", "object": "horizontalpodautoscaler/orders-api", "message": "New size: 6; reason: cpu resource utilization (percentage of request) above target", "count": 1, "last_seen": "2026-11-21T11:31:40Z"},
+        {"type": "Warning", "reason": "Unhealthy", "object": "pod/inventory-api-5b7c9d8e6-v5w6x", "message": "Readiness probe failed: Get \"http://10.244.2.17:8080/healthz\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)", "count": 41, "last_seen": "2026-11-21T11:52:16Z"},
+        {"type": "Warning", "reason": "Unhealthy", "object": "pod/inventory-api-5b7c9d8e6-s3t4u", "message": "Readiness probe failed: Get \"http://10.244.1.9:8080/healthz\": context deadline exceeded", "count": 12, "last_seen": "2026-11-21T11:51:58Z"}
+      ]
+    }
+  },
+  "metrics": {
+    "orders-api": {
+      "http_5xx_rate": {"unit": "percent", "description": "Share of requests returning 5xx", "points": [[-60, 0.2], [-45, 0.2], [-30, 0.4], [-25, 2.1], [-20, 5.6], [-10, 7.9], [-5, 8.4], [0, 8.9]]},
+      "http_p99_latency": {"unit": "ms", "description": "p99 request latency", "points": [[-60, 320], [-45, 330], [-30, 410], [-25, 1250], [-20, 2010], [-10, 2290], [0, 2410]]},
+      "cpu_usage": {"unit": "cores", "description": "Total CPU usage across pods", "points": [[-60, 0.9], [-30, 1.4], [-20, 2.1], [0, 2.2]]},
+      "memory_usage": {"unit": "MiB", "description": "Max container working-set memory across pods", "points": [[-60, 210], [-30, 215], [0, 222]]},
+      "restart_count": {"unit": "restarts", "description": "Container restarts across pods", "points": [[-60, 0], [0, 0]]}
+    },
+    "inventory-api": {
+      "cpu_usage": {"unit": "cores", "description": "Total CPU usage across pods (limit 2 x 250m = 0.5 cores)", "points": [[-60, 0.21], [-45, 0.23], [-30, 0.31], [-25, 0.47], [-20, 0.5], [-10, 0.5], [-5, 0.5], [0, 0.5]]},
+      "http_p99_latency": {"unit": "ms", "description": "p99 request latency", "points": [[-60, 85], [-45, 90], [-30, 140], [-25, 980], [-20, 1820], [-10, 2150], [0, 2390]]},
+      "http_5xx_rate": {"unit": "percent", "description": "Share of requests returning 5xx", "points": [[-60, 0.0], [-30, 0.0], [0, 0.3]]},
+      "memory_usage": {"unit": "MiB", "description": "Max container working-set memory across pods", "points": [[-60, 180], [-30, 184], [0, 191]]},
+      "restart_count": {"unit": "restarts", "description": "Container restarts across pods", "points": [[-60, 0], [0, 0]]}
+    }
+  }
+}

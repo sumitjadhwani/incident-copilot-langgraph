@@ -1,0 +1,22 @@
+{
+  "id": "live_oom_checkout",
+  "mode": "live",
+  "title": "[live] checkout-api restarting on the kind cluster",
+  "description": "Live alert for the kind demo cluster. Revision 2 of checkout-api warms a 200 MiB cache under a 128Mi limit.",
+  "alert": {
+    "name": "KubePodCrashLooping",
+    "severity": "critical",
+    "namespace": "acme-prod",
+    "service": "checkout-api",
+    "summary": "Pods of acme-prod/checkout-api are restarting frequently.",
+    "started_at": "now",
+    "labels": {"team": "payments", "tenant": "acme", "source": "kind"}
+  },
+  "expected": {
+    "root_cause_category": "oom",
+    "acceptable_actions": ["patch_resources", "rollback_deployment", "set_env"],
+    "action_target": "checkout-api",
+    "required_tools": ["describe_pod"],
+    "max_tool_calls": 60
+  }
+}

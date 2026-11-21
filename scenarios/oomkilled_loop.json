@@ -1,0 +1,225 @@
+{
+  "id": "oomkilled_loop",
+  "title": "checkout-api stuck in an OOMKilled restart loop",
+  "description": "A recent release added an in-process product cache. Under normal traffic the container's memory grows past its 256Mi limit within minutes, the kernel OOM-kills it (exit 137), and the pod enters CrashLoopBackOff.",
+  "alert": {
+    "name": "KubePodCrashLooping",
+    "severity": "critical",
+    "namespace": "acme-prod",
+    "service": "checkout-api",
+    "summary": "Pod acme-prod/checkout-api-7d9f8b6c5-x2k4p is restarting frequently (14 restarts in the last 60 minutes).",
+    "started_at": "2026-11-21T09:12:00Z",
+    "labels": {"team": "payments", "tenant": "acme"}
+  },
+  "expected": {
+    "root_cause_category": "oom",
+    "root_cause_keywords": ["OOMKilled", "memory limit", "256Mi"],
+    "acceptable_actions": ["patch_resources", "rollback_deployment", "set_env"],
+    "action_target": "checkout-api",
+    "required_tools": ["describe_pod", "get_pod_logs"],
+    "max_tool_calls": 60
+  },
+  "remediation": {
+    "fixes": [
+      {"tool": "patch_resources", "args": {"deployment": "checkout-api", "memory_limit": {"min_mib": 384}}},
+      {"tool": "rollback_deployment", "args": {"deployment": "checkout-api", "to_revision": 41}},
+      {"tool": "set_env", "args": {"deployment": "checkout-api", "name": "PRODUCT_CACHE_MAX_ITEMS", "value": {"max_int": 20000}}},
+      {"tool": "set_env", "args": {"deployment": "checkout-api", "name": "PRODUCT_CACHE_ENABLED", "value": "false"}}
+    ],
+    "heals": ["checkout-api"]
+  },
+  "namespaces": {
+    "acme-prod": {
+      "deployments": {
+        "checkout-api": {
+          "name": "checkout-api",
+          "replicas": 3,
+          "ready_replicas": 1,
+          "containers": [
+            {
+              "name": "app",
+              "image": "registry.acme.local/checkout-api:2.14.0",
+              "resources": {
+                "requests": {"cpu": "200m", "memory": "192Mi"},
+                "limits": {"cpu": "500m", "memory": "256Mi"}
+              },
+              "env": {
+                "DB_HOST": "postgres.acme-prod.svc.cluster.local",
+                "PRODUCT_CACHE_ENABLED": "true",
+                "PRODUCT_CACHE_MAX_ITEMS": "50000",
+                "LOG_LEVEL": "info"
+              }
+            }
+          ],
+          "revisions": [
+            {"revision": 41, "image": "registry.acme.local/checkout-api:2.13.2", "change_cause": "bump payment SDK", "created_at": "2026-11-18T14:02:00Z"},
+            {"revision": 42, "image": "registry.acme.local/checkout-api:2.14.0", "change_cause": "add in-memory product cache", "created_at": "2026-11-21T08:55:00Z"}
+          ]
+        },
+        "payments-api": {
+          "name": "payments-api",
+          "replicas": 2,
+          "ready_replicas": 2,
+          "containers": [
+            {
+              "name": "app",
+              "image": "registry.acme.local/payments-api:5.2.1",
+              "resources": {
+                "requests": {"cpu": "250m", "memory": "256Mi"},
+                "limits": {"cpu": "1", "memory": "512Mi"}
+              },
+              "env": {"LOG_LEVEL": "info"}
+            }
+          ],
+          "revisions": [
+            {"revision": 17, "image": "registry.acme.local/payments-api:5.2.1", "change_cause": "retry tuning", "created_at": "2026-11-10T10:30:00Z"}
+          ]
+        }
+      },
+      "pods": [
+        {
+          "name": "checkout-api-7d9f8b6c5-x2k4p",
+          "deployment": "checkout-api",
+          "phase": "Running",
+          "status": "CrashLoopBackOff",
+          "restarts": 14,
+          "node": "worker-1",
+          "age": "17m",
+          "containers": [
+            {
+              "name": "app",
+              "state": "Waiting (CrashLoopBackOff)",
+              "ready": false,
+              "last_state": {"state": "Terminated", "reason": "OOMKilled", "exit_code": 137, "finished_at": "2026-11-21T10:08:41Z"}
+            }
+          ],
+          "logs": {
+            "app": {
+              "current": [
+                "2026-11-21T10:09:12Z INFO  starting checkout-api 2.14.0",
+                "2026-11-21T10:09:12Z INFO  product cache enabled max_items=50000",
+                "2026-11-21T10:09:13Z INFO  connected to postgres.acme-prod.svc.cluster.local"
+              ],
+              "previous": [
+                "2026-11-21T10:04:02Z INFO  starting checkout-api 2.14.0",
+                "2026-11-21T10:04:02Z INFO  product cache enabled max_items=50000",
+                "2026-11-21T10:04:03Z INFO  connected to postgres.acme-prod.svc.cluster.local",
+                "2026-11-21T10:05:30Z INFO  product cache warm-up items=12000 rss=171Mi",
+                "2026-11-21T10:06:55Z INFO  product cache size items=24500 rss=208Mi",
+                "2026-11-21T10:07:48Z WARN  gc pause 412ms heap_used=231Mi",
+                "2026-11-21T10:08:30Z WARN  product cache size items=33800 rss=249Mi",
+                "2026-11-21T10:08:40Z WARN  gc pause 980ms heap_used=252Mi"
+              ]
+            }
+          }
+        },
+        {
+          "name": "checkout-api-7d9f8b6c5-m8q2z",
+          "deployment": "checkout-api",
+          "phase": "Running",
+          "status": "Running",
+          "restarts": 11,
+          "node": "worker-2",
+          "age": "17m",
+          "containers": [
+            {
+              "name": "app",
+              "state": "Running",
+              "ready": true,
+              "last_state": {"state": "Terminated", "reason": "OOMKilled", "exit_code": 137, "finished_at": "2026-11-21T10:06:10Z"}
+            }
+          ],
+          "logs": {
+            "app": {
+              "current": [
+                "2026-11-21T10:06:25Z INFO  starting checkout-api 2.14.0",
+                "2026-11-21T10:06:25Z INFO  product cache enabled max_items=50000",
+                "2026-11-21T10:08:50Z INFO  product cache size items=21000 rss=199Mi"
+              ],
+              "previous": [
+                "2026-11-21T10:02:11Z INFO  starting checkout-api 2.14.0",
+                "2026-11-21T10:05:59Z WARN  product cache size items=34100 rss=251Mi"
+              ]
+            }
+          }
+        },
+        {
+          "name": "checkout-api-7d9f8b6c5-p4w9n",
+          "deployment": "checkout-api",
+          "phase": "Running",
+          "status": "CrashLoopBackOff",
+          "restarts": 13,
+          "node": "worker-3",
+          "age": "17m",
+          "containers": [
+            {
+              "name": "app",
+              "state": "Waiting (CrashLoopBackOff)",
+              "ready": false,
+              "last_state": {"state": "Terminated", "reason": "OOMKilled", "exit_code": 137, "finished_at": "2026-11-21T10:07:55Z"}
+            }
+          ],
+          "logs": {"app": {"current": [], "previous": ["2026-11-21T10:07:50Z WARN  product cache size items=33500 rss=250Mi"]}}
+        },
+        {
+          "name": "payments-api-5c6b7d8f9-k2l3m",
+          "deployment": "payments-api",
+          "phase": "Running",
+          "status": "Running",
+          "restarts": 0,
+          "node": "worker-2",
+          "age": "11d",
+          "containers": [{"name": "app", "state": "Running", "ready": true}],
+          "logs": {"app": {"current": ["2026-11-21T10:09:00Z INFO  POST /charge 200 41ms"], "previous": []}}
+        }
+      ],
+      "events": [
+        {"type": "Normal", "reason": "ScalingReplicaSet", "object": "deployment/checkout-api", "message": "Scaled up replica set checkout-api-7d9f8b6c5 to 3", "count": 1, "last_seen": "2026-11-21T08:55:20Z"},
+        {"type": "Warning", "reason": "BackOff", "object": "pod/checkout-api-7d9f8b6c5-x2k4p", "message": "Back-off restarting failed container app in pod checkout-api-7d9f8b6c5-x2k4p", "count": 37, "last_seen": "2026-11-21T10:09:05Z"},
+        {"type": "Warning", "reason": "BackOff", "object": "pod/checkout-api-7d9f8b6c5-p4w9n", "message": "Back-off restarting failed container app in pod checkout-api-7d9f8b6c5-p4w9n", "count": 33, "last_seen": "2026-11-21T10:08:58Z"},
+        {"type": "Normal", "reason": "Pulled", "object": "pod/checkout-api-7d9f8b6c5-m8q2z", "message": "Container image \"registry.acme.local/checkout-api:2.14.0\" already present on machine", "count": 12, "last_seen": "2026-11-21T10:06:24Z"}
+      ]
+    }
+  },
+  "metrics": {
+    "checkout-api": {
+      "memory_usage": {
+        "unit": "MiB",
+        "description": "Max container working-set memory across pods",
+        "points": [[-60, 118], [-55, 121], [-50, 120], [-45, 124], [-40, 122], [-35, 119], [-14, 176], [-12, 214], [-10, 251], [-9, 92], [-7, 189], [-5, 238], [-4, 254], [-3, 88], [-1, 203], [0, 241]]
+      },
+      "cpu_usage": {
+        "unit": "cores",
+        "description": "Total CPU usage across pods",
+        "points": [[-60, 0.31], [-45, 0.33], [-30, 0.30], [-14, 0.58], [-10, 0.71], [-5, 0.66], [0, 0.69]]
+      },
+      "restart_count": {
+        "unit": "restarts",
+        "description": "Container restarts across pods, cumulative since the 08:55 rollout",
+        "points": [[-60, 0], [-45, 0], [-30, 0], [-14, 6], [-10, 17], [-5, 29], [0, 38]]
+      },
+      "http_5xx_rate": {
+        "unit": "percent",
+        "description": "Share of requests returning 5xx",
+        "points": [[-60, 0.1], [-45, 0.1], [-30, 0.2], [-14, 4.8], [-10, 11.2], [-5, 9.7], [0, 12.4]]
+      },
+      "http_p99_latency": {
+        "unit": "ms",
+        "description": "p99 request latency",
+        "points": [[-60, 180], [-45, 175], [-30, 190], [-14, 640], [-10, 1210], [-5, 980], [0, 1340]]
+      }
+    },
+    "payments-api": {
+      "memory_usage": {
+        "unit": "MiB",
+        "description": "Max container working-set memory across pods",
+        "points": [[-60, 301], [-30, 305], [0, 303]]
+      },
+      "http_5xx_rate": {
+        "unit": "percent",
+        "description": "Share of requests returning 5xx",
+        "points": [[-60, 0.0], [-30, 0.1], [0, 0.0]]
+      }
+    }
+  }
+}

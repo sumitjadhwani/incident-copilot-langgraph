@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Incident Copilot</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #5b6470; --line: #e3e6ea;
+    --accent: #2f6fed; --ok: #1f8a4c; --warn: #b26a00; --bad: #c62828; --chip: #eef1f5; --code: #f1f3f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1216; --panel: #171b21; --ink: #e6e9ee; --muted: #9aa4b1; --line: #2a3038;
+            --accent: #6d9bff; --ok: #4cc27f; --warn: #e0a440; --bad: #ff6b6b; --chip: #232932; --code: #1f242c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; }
+  header .who { margin-left: auto; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  main { display: grid; grid-template-columns: 300px 1fr; gap: 16px; padding: 16px; max-width: 1500px; margin: 0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; }
+  .stack > * + * { margin-top: 12px; }
+  select, textarea, input { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
+  button { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--chip); color: var(--ink); font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { background: transparent; border-color: var(--bad); color: var(--bad); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--chip); font-size: 12px; color: var(--muted); }
+  .status-awaiting_approval { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+  .status-running { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+  .status-completed, .status-resolved { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+  .status-failed, .status-interrupted, .status-action_failed, .status-not_resolved { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
+  .incident { padding: 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+  .incident:hover { background: var(--chip); }
+  .incident.active { border-color: var(--accent); }
+  .incident .t { font-weight: 600; font-size: 13px; }
+  .incident .m { color: var(--muted); font-size: 12px; display: flex; gap: 6px; align-items: center; margin-top: 2px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .tabs button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 1200px) { .grid2 { grid-template-columns: 1fr; } }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 10px; font-size: 13px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; overflow-wrap: anywhere; }
+  ul.tight { margin: 4px 0; padding-left: 18px; }
+  pre, code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+  pre { background: var(--code); padding: 10px; border-radius: 8px; overflow: auto; margin: 6px 0; }
+  .approval { border: 2px solid var(--warn); }
+  .timeline { max-height: 560px; overflow: auto; font-size: 12.5px; }
+  .ev { padding: 4px 0; border-bottom: 1px dashed var(--line); display: flex; gap: 8px; }
+  .ev .who { color: var(--accent); white-space: nowrap; min-width: 92px; }
+  .ev .what { overflow-wrap: anywhere; }
+  .ev.route .what { font-weight: 600; }
+  .ev.err .what { color: var(--bad); }
+  .muted { color: var(--muted); }
+  .verdict-supported { color: var(--ok); } .verdict-refuted { color: var(--bad); } .verdict-inconclusive { color: var(--warn); }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .report h2 { font-size: 15px; text-transform: none; letter-spacing: 0; color: var(--ink); margin: 14px 0 6px; }
+  .toast { position: fixed; bottom: 16px; right: 16px; background: var(--bad); color: #fff; padding: 10px 14px; border-radius: 8px; max-width: 420px; display: none; }
+  .empty { color: var(--muted); padding: 30px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Incident Copilot</h1>
+  <span class="chip" id="authmode"></span>
+  <div class="who" id="who"></div>
+</header>
+<main>
+  <aside class="stack">
+    <section class="panel stack">
+      <h2>New incident</h2>
+      <select id="scenario"></select>
+      <button class="primary" id="start">Start investigation</button>
+      <div class="muted" id="startHint"></div>
+    </section>
+    <section class="panel">
+      <h2>Incidents (your tenant)</h2>
+      <div id="incidents"><div class="muted">No incidents yet.</div></div>
+    </section>
+  </aside>
+  <section id="detail"><div class="panel empty">Start or select an incident.</div></section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let cfg, me, selected = null, streamAbort = null, lastSeq = 0, refreshTimer = null, currentTab = "overview";
+
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(t._h); t._h = setTimeout(() => (t.style.display = "none"), 6000);
+}
+
+// ---------------------------------------------------------------- OIDC (Authorization Code + PKCE)
+const auth = {
+  get oidc() { return `${cfg.issuer}/protocol/openid-connect`; },
+  redirectUri: `${location.origin}/`,
+  b64url(bytes) { return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); },
+  random(n = 48) { return this.b64url(crypto.getRandomValues(new Uint8Array(n))); },
+  async login() {
+    const verifier = this.random(48), st = this.random(16);
+    const challenge = this.b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+    sessionStorage.setItem("pkce", JSON.stringify({ verifier, state: st }));
+    const q = new URLSearchParams({ client_id: cfg.client_id, response_type: "code", scope: "openid profile",
+      redirect_uri: this.redirectUri, code_challenge: challenge, code_challenge_method: "S256", state: st });
+    location.assign(`${this.oidc}/auth?${q}`);
+    await new Promise(() => {});
+  },
+  save(tok) {
+    const t = { access: tok.access_token, refresh: tok.refresh_token, id: tok.id_token,
+                exp: Date.now() + tok.expires_in * 1000 };
+    sessionStorage.setItem("tokens", JSON.stringify(t)); return t;
+  },
+  tokens() { try { return JSON.parse(sessionStorage.getItem("tokens")); } catch { return null; } },
+  async exchange(body) {
+    const r = await fetch(`${this.oidc}/token`, { method: "POST", body: new URLSearchParams({ client_id: cfg.client_id, ...body }) });
+    if (!r.ok) throw new Error(`token endpoint ${r.status}`);
+    return this.save(await r.json());
+  },
+  async init() {
+    const p = new URLSearchParams(location.search);
+    if (p.get("code")) {
+      const pk = JSON.parse(sessionStorage.getItem("pkce") || "{}");
+      sessionStorage.removeItem("pkce");
+      history.replaceState({}, "", "/");
+      if (pk.state !== p.get("state")) throw new Error("OIDC state mismatch");
+      await this.exchange({ grant_type: "authorization_code", code: p.get("code"), redirect_uri: this.redirectUri, code_verifier: pk.verifier });
+    }
+    if (!this.tokens()) await this.login();
+  },
+  async token() {
+    let t = this.tokens();
+    if (!t) await this.login();
+    if (t.exp - Date.now() < 30000) {
+      try { t = await this.exchange({ grant_type: "refresh_token", refresh_token: t.refresh }); }
+      catch { sessionStorage.removeItem("tokens"); await this.login(); }
+    }
+    return t.access;
+  },
+  logout() {
+    const t = this.tokens(); sessionStorage.clear();
+    const q = new URLSearchParams({ client_id: cfg.client_id, post_logout_redirect_uri: this.redirectUri });
+    if (t?.id) q.set("id_token_hint", t.id);
+    location.assign(`${this.oidc}/logout?${q}`);
+  },
+};
+
+async function headers(extra = {}) {
+  const h = { ...extra };
+  if (cfg.auth_mode === "keycloak") h.Authorization = `Bearer ${await auth.token()}`;
+  return h;
+}
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: await headers(opts.body ? { "Content-Type": "application/json" } : {}) });
+  const data = r.headers.get("content-type")?.includes("json") ? await r.json() : null;
+  if (!r.ok) throw new Error(`${r.status} ${data?.error ?? ""}: ${data?.message ?? JSON.stringify(data?.detail ?? data)}`);
+  return data;
+}
+
+// ---------------------------------------------------------------- tiny markdown
+function md(src) {
+  const lines = esc(src || "").split("\n"); let out = "", inList = false, inCode = false;
+  const inline = (s) => s.replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  for (const l of lines) {
+    if (l.startsWith("```")) { out += inCode ? "</pre>" : "<pre>"; inCode = !inCode; continue; }
+    if (inCode) { out += l + "\n"; continue; }
+    const li = l.match(/^\s*(?:[-*]|\d+\.)\s+(.*)/);
+    if (li) { if (!inList) { out += "<ul class='tight'>"; inList = true; } out += `<li>${inline(li[1])}</li>`; continue; }
+    if (inList) { out += "</ul>"; inList = false; }
+    const h = l.match(/^#{1,4}\s+(.*)/);
+    if (h) out += `<h2>${inline(h[1])}</h2>`; else if (l.trim()) out += `<p>${inline(l)}</p>`;
+  }
+  return out + (inList ? "</ul>" : "") + (inCode ? "</pre>" : "");
+}
+
+// ---------------------------------------------------------------- sidebar
+async function loadIncidents() {
+  const rows = await api("/api/incidents");
+  $("#incidents").innerHTML = rows.length ? rows.map((r) => `
+    <div class="incident ${r.thread_id === selected ? "active" : ""}" data-id="${esc(r.thread_id)}">
+      <div class="t">${esc(r.title)}</div>
+      <div class="m"><span class="chip status-${esc(r.status)}">${esc(r.status)}</span>
+        <span>${esc(r.owner_username)}</span><span>${new Date(r.created_at).toLocaleTimeString()}</span></div>
+    </div>`).join("") : `<div class="muted">No incidents yet.</div>`;
+  document.querySelectorAll(".incident").forEach((el) => (el.onclick = () => select(el.dataset.id)));
+}
+
+// ---------------------------------------------------------------- detail
+const timeline = [];
+let liveReport = "";
+
+function describe(e) {
+  const who = (e.agent || "") + (e.label ? ` · ${e.label.slice(0, 40)}` : "");
+  switch (e.type) {
+    case "run_started": return ["run", `run started (${e.reason})`];
+    case "route": return ["supervisor", `→ ${e.to}: ${e.reason}`, "route"];
+    case "agent_step": return [who, e.tool_calls.length ? e.tool_calls.map((c) => `${c.tool}(${JSON.stringify(c.args)})`).join(", ") : (e.thought || "…")];
+    case "tool_result": return [who, `← ${e.tool}: ${e.preview.slice(0, 220)}`];
+    case "tool_error": return [who, `${e.tool} failed: ${e.error} (retrying)`, "err"];
+    case "hypotheses": return ["diagnosis", "hypotheses: " + e.hypotheses.map((h) => `${h.id} ${h.title}`).join(" | ")];
+    case "agent_result": return [who, e.result.verdict ? `verdict: ${e.result.verdict}` : `result ready`];
+    case "memory": return ["memory", `loaded ${e.kind}${e.category ? " (" + e.category + ")" : ""}`];
+    case "approval_required": return ["gate", `waiting for approval: ${e.request.action.tool} (${e.request.risk} risk)`, "route"];
+    case "approval": return ["gate", `auto-approved by policy`];
+    case "execution": return ["executor", `${e.status}${e.error ? ": " + e.error : ""}`, e.status === "executed" ? "" : "err"];
+    case "verification": return ["verify", `resolved=${e.resolved}: ${e.checks.join("; ")}`];
+    case "verification_progress": return ["verify", `${e.healthy ? "healthy, checking stability" : "waiting"}: ${e.checks.join("; ")}`];
+    case "status": return ["finalize", `final status: ${e.status}`, "route"];
+    case "run_finished": return ["run", `run finished: ${e.status}`];
+    case "run_failed": return ["run", `run failed: ${e.error}`, "err"];
+    default: return null;
+  }
+}
+
+function renderTimeline() {
+  const el = $("#timeline"); if (!el) return;
+  el.innerHTML = timeline.map((e) => { const d = describe(e); return d ? `<div class="ev ${d[2] || ""}"><span class="who">${esc(d[0])}</span><span class="what">${esc(d[1])}</span></div>` : ""; }).join("");
+  el.scrollTop = el.scrollHeight;
+}
+
+function card(title, body) { return `<div class="panel"><h2>${title}</h2>${body}</div>`; }
+function list(items) { return items?.length ? `<ul class="tight">${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : `<span class="muted">none</span>`; }
+
+function renderOverview(inc) {
+  const s = inc.state || {}, pending = inc.pending_approval, t = s.triage, d = s.diagnosis, p = s.proposal;
+  let html = "";
+  if (pending) {
+    const canApprove = me.can_approve && me.user_id !== inc.thread.owner_id;
+    const why = !me.can_approve ? `You need the ${esc(cfg.approver_role)} role to decide.` :
+      (me.user_id === inc.thread.owner_id ? "Four-eyes rule: someone other than the incident owner must decide." : "");
+    html += `<div class="panel approval stack"><h2>Approval required</h2>
+      <dl class="kv"><dt>Action</dt><dd><code>${esc(pending.action.tool)}</code> on ${esc(pending.action.namespace)}/${esc(pending.action.deployment)}</dd>
+      <dt>Risk</dt><dd>${esc(pending.risk)}: ${esc(pending.reasons.join("; "))}</dd>
+      <dt>Rationale</dt><dd>${esc(pending.rationale)}</dd><dt>Expected</dt><dd>${esc(pending.expected_outcome)}</dd>
+      <dt>Action hash</dt><dd><code>${esc(pending.action_hash)}</code></dd></dl>
+      <pre>${esc(JSON.stringify(pending.action, null, 2))}</pre>
+      <textarea id="comment" rows="2" placeholder="Comment (optional)"></textarea>
+      <div style="display:flex;gap:8px"><button class="primary" id="approve" ${canApprove ? "" : "disabled"}>Approve</button>
+      <button class="danger" id="reject" ${canApprove ? "" : "disabled"}>Reject</button></div>
+      ${why ? `<div class="muted">${why} The server enforces this too.</div>` : ""}</div>`;
+  }
+  if (inc.thread.status === "interrupted" || inc.thread.status === "failed") {
+    html += `<div class="panel stack"><h2>Run stopped</h2><div class="muted">The run stopped before finishing (next: ${esc(inc.next.join(", ") || "none")}). It continues from the last checkpoint.</div>
+      <button id="resume" ${inc.next.length ? "" : "disabled"}>Resume from checkpoint</button></div>`;
+  }
+  html += `<div class="grid2">`;
+  html += card("Triage", t ? `<dl class="kv"><dt>Severity</dt><dd>${esc(t.severity)}</dd><dt>Actionable</dt><dd>${t.actionable}</dd>
+      <dt>Summary</dt><dd>${esc(t.summary)}</dd></dl>${list(t.symptoms)}` : `<span class="muted">pending</span>`);
+  html += card("Diagnosis", d ? `<dl class="kv"><dt>Category</dt><dd>${esc(d.category)}</dd><dt>Confidence</dt><dd>${esc(d.confidence)}</dd>
+      <dt>Culprit</dt><dd>${esc(d.culprit_deployment)}</dd><dt>Root cause</dt><dd>${esc(d.root_cause)}</dd></dl>${list(d.evidence)}` : `<span class="muted">pending</span>`);
+  html += `</div>`;
+  if (s.hypotheses?.length) {
+    const verdicts = Object.fromEntries((s.verdicts || []).map((v) => [v.hypothesis_id, v]));
+    html += card("Parallel hypotheses", `<table><tr><th>#</th><th>Hypothesis</th><th>Verdict</th><th>Evidence</th></tr>${s.hypotheses.map((h) => {
+      const v = verdicts[h.id]; return `<tr><td>${esc(h.id)}</td><td>${esc(h.title)} <span class="chip">${esc(h.category)}</span></td>
+        <td class="verdict-${esc(v?.verdict)}">${esc(v?.verdict ?? "…")}</td><td>${list(v?.evidence)}</td></tr>`; }).join("")}</table>`);
+  }
+  if (p) html += card("Proposed action", p.action ? `<pre>${esc(JSON.stringify(p.action, null, 2))}</pre><div>${esc(p.rationale)}</div>` : `<div>No automated action: ${esc(p.rationale)}</div>`);
+  if (s.approval || s.execution || s.verification) {
+    html += card("Outcome", `<dl class="kv">
+      ${s.approval ? `<dt>Decision</dt><dd>${esc(s.approval.decision)} by ${esc(s.approval.approver_id)}${s.approval.comment ? " (" + esc(s.approval.comment) + ")" : ""}</dd>` : ""}
+      ${s.execution ? `<dt>Execution</dt><dd>${esc(s.execution.status)}${s.execution.executed_as ? " as " + esc(s.execution.executed_as) : ""}${s.execution.error ? ": " + esc(s.execution.error) : ""}</dd>` : ""}
+      ${s.verification ? `<dt>Verification</dt><dd>resolved=${s.verification.resolved}${list(s.verification.checks)}</dd>` : ""}
+      ${s.status ? `<dt>Status</dt><dd><span class="chip status-${esc(s.status)}">${esc(s.status)}</span></dd>` : ""}</dl>`);
+  }
+  const report = s.report || liveReport;
+  if (report) html += card("Incident report", `<div class="report">${md(report)}</div>`);
+  return html;
+}
+
+async function renderTab(inc) {
+  const body = $("#tabbody");
+  if (currentTab === "overview") body.innerHTML = renderOverview(inc);
+  if (currentTab === "audit") {
+    const a = await api(`/api/audit?thread_id=${encodeURIComponent(selected)}`);
+    body.innerHTML = card(`Audit log <span class="chip ${a.chain.ok ? "status-completed" : "status-failed"}">chain ${a.chain.ok ? "verified" : "BROKEN at #" + a.chain.first_bad_id} (${a.chain.rows_checked} rows)</span>`,
+      a.rows.length ? `<table><tr><th>#</th><th>Time</th><th>Status</th><th>Action</th><th>By</th><th>Action hash</th><th>Row hash</th></tr>${a.rows.map((r) => `
+        <tr><td>${r.id}</td><td>${new Date(r.created_at).toLocaleTimeString()}</td><td>${esc(r.status)}</td><td><code>${esc(r.action_tool)}</code></td>
+        <td>${esc(r.detail?.approver_username || r.approver_id)}</td><td><code>${esc(r.action_hash.slice(0, 12))}…</code></td><td><code>${esc(r.row_hash.slice(0, 12))}…</code></td></tr>`).join("")}</table>`
+        : `<span class="muted">No audit rows for this incident yet.</span>`);
+  }
+  if (currentTab === "history") {
+    const h = await api(`/api/incidents/${encodeURIComponent(selected)}/history`);
+    body.innerHTML = card("Checkpoint history (time travel)", `<table><tr><th>Step</th><th>Source</th><th>Next</th><th>Checkpoint</th><th>Created</th></tr>${h.map((c) => `
+      <tr><td>${esc(c.step)}</td><td>${esc(c.source)}</td><td>${esc(c.next.join(", "))}${c.has_interrupt ? " ⏸" : ""}</td><td><code>${esc(c.checkpoint_id.slice(-12))}</code></td>
+      <td>${new Date(c.created_at).toLocaleTimeString()}</td></tr>`).join("")}</table>
+      <div class="muted">Replay or fork from any checkpoint with <code>scripts/history.py</code>.</div>`);
+  }
+  bindActions(inc);
+}
+
+function bindActions(inc) {
+  const decide = async (decision) => {
+    try {
+      await api(`/api/incidents/${encodeURIComponent(selected)}/approvals`, { method: "POST",
+        body: JSON.stringify({ decision, action_hash: inc.pending_approval.action_hash, comment: $("#comment").value || null }) });
+      follow();
+    } catch (e) { toast(e.message); }
+  };
+  if ($("#approve")) $("#approve").onclick = () => decide("approve");
+  if ($("#reject")) $("#reject").onclick = () => decide("reject");
+  if ($("#resume")) $("#resume").onclick = async () => {
+    try { await api(`/api/incidents/${encodeURIComponent(selected)}/resume`, { method: "POST" }); follow(); } catch (e) { toast(e.message); }
+  };
+}
+
+let currentIncident = null;
+async function refresh() {
+  if (!selected) return;
+  currentIncident = await api(`/api/incidents/${encodeURIComponent(selected)}`);
+  const inc = currentIncident;
+  $("#title").innerHTML = `${esc(inc.thread.title)} <span class="chip status-${esc(inc.thread.status)}">${esc(inc.thread.status)}</span>`;
+  $("#meta").textContent = `${inc.thread.thread_id} · started by ${inc.thread.owner_username} · tenant ${inc.thread.tenant_id}`;
+  await renderTab(inc);
+  loadIncidents();
+}
+function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 300); }
+
+async function follow() {
+  if (streamAbort) streamAbort.abort();
+  const ctl = new AbortController(); streamAbort = ctl;
+  try {
+    // EventSource cannot send an Authorization header, so read the SSE stream with fetch.
+    const r = await fetch(`/api/incidents/${encodeURIComponent(selected)}/events?after=${lastSeq}`, { headers: await headers(), signal: ctl.signal });
+    if (!r.ok) throw new Error(`events ${r.status}`);
+    const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+        const data = chunk.split("\n").filter((l) => l.startsWith("data: ")).map((l) => l.slice(6)).join("");
+        if (!data || data === "{}") continue;
+        const e = JSON.parse(data); if (e.seq) lastSeq = Math.max(lastSeq, e.seq);
+        if (e.type === "keepalive") continue;
+        if (e.type === "token") { liveReport += e.text; continue; }
+        timeline.push(e); renderTimeline();
+        if (["node_done", "run_finished", "run_failed", "approval_required", "status"].includes(e.type)) scheduleRefresh();
+      }
+    }
+  } catch (e) { if (e.name !== "AbortError") toast(e.message); }
+  scheduleRefresh();
+}
+
+async function select(id) {
+  selected = id; lastSeq = 0; timeline.length = 0; liveReport = ""; currentTab = "overview";
+  $("#detail").innerHTML = `<div class="stack">
+    <div class="panel"><div id="title" style="font-weight:600;font-size:16px"></div><div class="muted" id="meta"></div></div>
+    <div class="tabs"><button data-tab="overview" class="active">Overview</button><button data-tab="audit">Audit log</button><button data-tab="history">Checkpoints</button></div>
+    <div class="grid2" style="grid-template-columns: 1.4fr 1fr"><div id="tabbody" class="stack"></div>
+    <div class="panel"><h2>Live timeline</h2><div class="timeline" id="timeline"><span class="muted">Events from the current run appear here.</span></div></div></div></div>`;
+  document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => {
+    currentTab = b.dataset.tab; document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
+    if (currentIncident) renderTab(currentIncident);
+  }));
+  await refresh();
+  follow();
+}
+
+// ---------------------------------------------------------------- boot
+async function boot() {
+  cfg = await (await fetch("/api/config")).json();
+  $("#authmode").textContent = (cfg.auth_mode === "dev" ? "dev auth (no login)" : "Keycloak SSO") +
+    (cfg.tool_backend === "mcp" ? " · live cluster (MCP)" : " · synthetic scenarios");
+  if (cfg.auth_mode === "keycloak") await auth.init();
+  me = await api("/api/me");
+  $("#who").innerHTML = `<span><strong>${esc(me.username)}</strong></span><span class="chip">tenant ${esc(me.tenant_id)}</span>
+    ${me.roles.filter((r) => r.startsWith("sre")).map((r) => `<span class="chip">${esc(r)}</span>`).join("")}
+    ${cfg.auth_mode === "keycloak" ? `<button id="logout">Log out</button>` : ""}`;
+  if ($("#logout")) $("#logout").onclick = () => auth.logout();
+  const scenarios = await api("/api/scenarios");
+  $("#scenario").innerHTML = scenarios.map((s) => `<option value="${esc(s.id)}">${esc(s.title)}</option>`).join("");
+  $("#start").onclick = async () => {
+    try {
+      const r = await api("/api/incidents", { method: "POST", body: JSON.stringify({ scenario_id: $("#scenario").value }) });
+      await loadIncidents(); select(r.thread_id);
+    } catch (e) { toast(e.message); }
+  };
+  await loadIncidents();
+  setInterval(loadIncidents, 8000);
+}
+boot().catch((e) => toast(e.message));
+</script>
+</body>
+</html>

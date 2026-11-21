@@ -1,0 +1,89 @@
+# Local stack: Postgres, Keycloak (dev mode, realm imported on start) and the agent API.
+#
+#   docker compose -f infra/docker-compose.yml up -d --build
+#
+# The API reads LLM / LangSmith keys from the repo-root .env.
+name: incident-copilot
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: copilot
+      POSTGRES_PASSWORD: copilot
+      POSTGRES_DB: copilot
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U copilot -d copilot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # Tokens carry this issuer whether they are requested by the browser or by containers.
+      KC_HOSTNAME: http://localhost:8080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./keycloak/realm-incident-copilot.json:/opt/keycloak/data/import/realm-incident-copilot.json:ro
+    healthcheck:
+      # The image has no curl; probe the management port with bash's /dev/tcp.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  api:
+    build:
+      context: ..
+      dockerfile: infra/api.Dockerfile
+    env_file: ../.env
+    environment:
+      COPILOT_DATABASE_URL: postgresql://copilot_app:copilot_app@postgres:5432/copilot
+      COPILOT_ADMIN_DATABASE_URL: postgresql://copilot:copilot@postgres:5432/copilot
+      COPILOT_AUTH_MODE: keycloak
+      COPILOT_KEYCLOAK_ISSUER: http://localhost:8080/realms/incident-copilot
+      COPILOT_KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/incident-copilot/protocol/openid-connect/certs
+      # mock = synthetic scenarios; mcp = kind cluster via MCP servers (run scripts/kind_up.ps1 first)
+      COPILOT_TOOL_BACKEND: ${COPILOT_TOOL_BACKEND:-mock}
+      COPILOT_MCP_OBSERVABILITY_URL: http://host.docker.internal:30081/mcp
+      COPILOT_MCP_K8S_READ_URL: http://host.docker.internal:30082/mcp
+      COPILOT_MCP_K8S_WRITE_URL: http://host.docker.internal:30083/mcp
+      COPILOT_OTEL_ENDPOINT: http://jaeger:4318
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+
+  jaeger:
+    # Jaeger v2 all-in-one: OTLP on 4317 (gRPC) / 4318 (HTTP), UI on 16686.
+    image: jaegertracing/jaeger:2.9.0
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+
+volumes:
+  pgdata:

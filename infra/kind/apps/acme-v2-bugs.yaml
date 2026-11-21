@@ -1,0 +1,58 @@
+# acme-prod, revision 2: the bad releases.
+#   checkout-api 2.14.0 warms a 200 MiB product cache under a 128Mi limit -> OOMKilled loop.
+#   notification-svc gets SMTP_PORT="smtp.acme.local:587" -> config validation exits 1 -> CrashLoopBackOff.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-api
+  namespace: acme-prod
+  annotations: {kubernetes.io/change-cause: "release 2.14.0: add in-memory product cache"}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector: {matchLabels: {app: checkout-api}}
+  template:
+    metadata:
+      labels: {app: checkout-api}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8080"}
+    spec:
+      containers:
+        - name: app
+          image: buggy-service:dev
+          imagePullPolicy: Never
+          env:
+            - {name: SERVICE_NAME, value: checkout-api}
+            - {name: SERVICE_VERSION, value: "2.14.0"}
+            - {name: CACHE_MB, value: "200"}
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+          resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {cpu: 250m, memory: 128Mi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-svc
+  namespace: acme-prod
+  annotations: {kubernetes.io/change-cause: "move SMTP settings from configmap to env vars"}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector: {matchLabels: {app: notification-svc}}
+  template:
+    metadata:
+      labels: {app: notification-svc}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8080"}
+    spec:
+      containers:
+        - name: app
+          image: buggy-service:dev
+          imagePullPolicy: Never
+          env:
+            - {name: SERVICE_NAME, value: notification-svc}
+            - {name: SERVICE_VERSION, value: "1.9.0"}
+            - {name: REQUIRE_SMTP, value: "true"}
+            - {name: SMTP_HOST, value: smtp.acme.local}
+            - {name: SMTP_PORT, value: "smtp.acme.local:587"}
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+          resources: {requests: {cpu: 20m, memory: 48Mi}, limits: {cpu: 200m, memory: 128Mi}}

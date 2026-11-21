@@ -1,0 +1,86 @@
+# acme-prod, revision 1: healthy baseline for both services, plus a load generator.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-api
+  namespace: acme-prod
+  annotations: {kubernetes.io/change-cause: "release 2.13.2: bump payment SDK"}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector: {matchLabels: {app: checkout-api}}
+  template:
+    metadata:
+      labels: {app: checkout-api}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8080"}
+    spec:
+      containers:
+        - name: app
+          image: buggy-service:dev
+          imagePullPolicy: Never
+          env:
+            - {name: SERVICE_NAME, value: checkout-api}
+            - {name: SERVICE_VERSION, value: "2.13.2"}
+            - {name: CACHE_MB, value: "0"}
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+          resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {cpu: 250m, memory: 128Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: checkout-api, namespace: acme-prod}
+spec:
+  selector: {app: checkout-api}
+  ports: [{port: 80, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-svc
+  namespace: acme-prod
+  annotations: {kubernetes.io/change-cause: "release 1.9.0: retry backoff for webhooks"}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector: {matchLabels: {app: notification-svc}}
+  template:
+    metadata:
+      labels: {app: notification-svc}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8080"}
+    spec:
+      containers:
+        - name: app
+          image: buggy-service:dev
+          imagePullPolicy: Never
+          env:
+            - {name: SERVICE_NAME, value: notification-svc}
+            - {name: SERVICE_VERSION, value: "1.9.0"}
+            - {name: REQUIRE_SMTP, value: "true"}
+            - {name: SMTP_HOST, value: smtp.acme.local}
+            - {name: SMTP_PORT, value: "587"}
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+          resources: {requests: {cpu: 20m, memory: 48Mi}, limits: {cpu: 200m, memory: 128Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: notification-svc, namespace: acme-prod}
+spec:
+  selector: {app: notification-svc}
+  ports: [{port: 80, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: loadgen, namespace: acme-prod}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: loadgen}}
+  template:
+    metadata: {labels: {app: loadgen}}
+    spec:
+      containers:
+        - name: loadgen
+          image: busybox:1.37
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "while true; do wget -q -T 2 -O /dev/null http://checkout-api/ ; wget -q -T 2 -O /dev/null http://notification-svc/ ; sleep 0.3; done"]
+          resources: {requests: {cpu: 10m, memory: 8Mi}, limits: {memory: 32Mi}}

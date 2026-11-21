@@ -1,0 +1,32 @@
+# globex-prod: a healthy service, so the second tenant has something to look at (and acme cannot).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-api
+  namespace: globex-prod
+  annotations: {kubernetes.io/change-cause: "release 3.2.0"}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: billing-api}}
+  template:
+    metadata:
+      labels: {app: billing-api}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8080"}
+    spec:
+      containers:
+        - name: app
+          image: buggy-service:dev
+          imagePullPolicy: Never
+          env:
+            - {name: SERVICE_NAME, value: billing-api}
+            - {name: SERVICE_VERSION, value: "3.2.0"}
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+          resources: {requests: {cpu: 20m, memory: 48Mi}, limits: {cpu: 200m, memory: 128Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: billing-api, namespace: globex-prod}
+spec:
+  selector: {app: billing-api}
+  ports: [{port: 80, targetPort: 8080}]
